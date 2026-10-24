@@ -1,0 +1,425 @@
+Microsoft Windows [Version 10.0.26200.8457]
+(c) Корпорация Майкрософт (Microsoft Corporation). Все права защищены.
+
+C:\Users\Айнур>cd "C:\Users\Айнур\OneDrive\Desktop\vibrow"
+
+C:\Users\Айнур\OneDrive\Desktop\vibrow>python viengine.py
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 410, in <module>
+    class SimpleBrowser:
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 452, in SimpleBrowser
+    top_frame, width=32, height=32, bg="#e0e0e0", highlightthickness=0
+    ^^^^^^^^^
+NameError: name 'top_frame' is not defined
+
+C:\Users\Айнур\OneDrive\Desktop\vibrow>"C:\Users\Айнур\OneDrive\Desktop\vibrow"
+
+C:\Users\Айнур\OneDrive\Desktop\vibrow>python viengine.py
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 410, in <module>
+    class SimpleBrowser:
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 469, in SimpleBrowser
+    top_frame, height=42, bg="#e0e0e0", highlightthickness=0
+    ^^^^^^^^^
+NameError: name 'top_frame' is not defined
+
+C:\Users\Айнур\OneDrive\Desktop\vibrow>знерщт мшутпшту,зн
+"знерщт" не является внутренней или внешней
+командой, исполняемой программой или пакетным файлом.
+
+C:\Users\Айнур\OneDrive\Desktop\vibrow>python viengine.py
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 410, in <module>
+    class SimpleBrowser:
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 469, in SimpleBrowser
+    top_frame, height=42, bg="#e0e0e0", highlightthickness=0
+    ^^^^^^^^^
+NameError: name 'top_frame' is not defined
+
+C:\Users\Айнур\OneDrive\Desktop\vibrow>python viengine.py
+⚠️ Сетевой сбой ('SimpleHTMLParser' object has no attribute '_parse_css_vars')! Пробуем спасти через VIPROXY...
+😭 Прокси тоже не пробился: name 'quote_plus' is not defined
+DuckDuckGo запретили нам вход на данную страницу: 'SimpleHTMLParser' object has no attribute '_parse_css_value'
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1640, in load_page
+    self.render_html(response.text, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1646, in load_page
+    proxy_url = f"https://viproxy.pfeh-qqq.workers.dev/?url={quote_plus(url)}"
+                                                             ^^^^^^^^^^
+NameError: name 'quote_plus' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1565, in _load_search_cascade
+    self.render_html(response.text, final_url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 170, in goahead
+    k = self.parse_starttag(i)
+        ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 337, in parse_starttag
+    self.handle_starttag(tag, attrs)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 199, in handle_starttag
+    body_bg = self._parse_css_value(style, "background", "background-color")
+              ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_value'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 861, in callit
+    func(*args)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 646, in _load_start_page
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1652, in load_page
+    self._load_search_cascade(search_query if search_query else url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1578, in _load_search_cascade
+    self.render_html(error_html, search_url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 170, in goahead
+    k = self.parse_starttag(i)
+        ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 337, in parse_starttag
+    self.handle_starttag(tag, attrs)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 199, in handle_starttag
+    body_bg = self._parse_css_value(style, "background", "background-color")
+              ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_value'
+⚠️ Сетевой сбой ('SimpleHTMLParser' object has no attribute '_parse_css_vars')! Пробуем спасти через VIPROXY...
+😭 Прокси тоже не пробился: name 'quote_plus' is not defined
+DuckDuckGo запретили нам вход на данную страницу: 'SimpleHTMLParser' object has no attribute '_parse_css_value'
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1640, in load_page
+    self.render_html(response.text, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1646, in load_page
+    proxy_url = f"https://viproxy.pfeh-qqq.workers.dev/?url={quote_plus(url)}"
+                                                             ^^^^^^^^^^
+NameError: name 'quote_plus' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1565, in _load_search_cascade
+    self.render_html(response.text, final_url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 170, in goahead
+    k = self.parse_starttag(i)
+        ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 337, in parse_starttag
+    self.handle_starttag(tag, attrs)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 199, in handle_starttag
+    body_bg = self._parse_css_value(style, "background", "background-color")
+              ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_value'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 772, in _new_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1652, in load_page
+    self._load_search_cascade(search_query if search_query else url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1578, in _load_search_cascade
+    self.render_html(error_html, search_url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 170, in goahead
+    k = self.parse_starttag(i)
+        ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 337, in parse_starttag
+    self.handle_starttag(tag, attrs)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 199, in handle_starttag
+    body_bg = self._parse_css_value(style, "background", "background-color")
+              ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_value'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 772, in _new_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 743, in <lambda>
+    command=lambda target=index: self._close_tab(target),
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 786, in _close_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 743, in <lambda>
+    command=lambda target=index: self._close_tab(target),
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 786, in _close_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 772, in _new_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 743, in <lambda>
+    command=lambda target=index: self._close_tab(target),
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 786, in _close_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 743, in <lambda>
+    command=lambda target=index: self._close_tab(target),
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 786, in _close_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 743, in <lambda>
+    command=lambda target=index: self._close_tab(target),
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 786, in _close_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 743, in <lambda>
+    command=lambda target=index: self._close_tab(target),
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 786, in _close_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 743, in <lambda>
+    command=lambda target=index: self._close_tab(target),
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 786, in _close_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 772, in _new_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
+⚡️ Загружено из локального кэша!
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\tkinter\__init__.py", line 1967, in __call__
+    return self.func(*args)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 743, in <lambda>
+    command=lambda target=index: self._close_tab(target),
+                                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 786, in _close_tab
+    self.load_page()
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1617, in load_page
+    self.render_html(cached_html, url)
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 1274, in render_html
+    parser.feed(html_text)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 110, in feed
+    self.goahead(0)
+  File "C:\Users\Айнур\AppData\Local\Programs\Python\Python311\Lib\html\parser.py", line 164, in goahead
+    self.handle_data(rawdata[i:j])
+  File "C:\Users\Айнур\OneDrive\Desktop\vibrow\viengine.py", line 386, in handle_data
+    self._parse_css_vars()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SimpleHTMLParser' object has no attribute '_parse_css_vars'
