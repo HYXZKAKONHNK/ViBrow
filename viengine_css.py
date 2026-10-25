@@ -8,12 +8,8 @@ class CSSEngine:
     self.style_rules = []
 
   def process_image_and_search_styles(self, element, computed_styles):
-        """
-        Ультра-поддержка изображений и блоков поисковой выдачи! 📸🔍
-        """
         tag = element.get("tag", "").lower()
         
-        # 🖼️ 1. СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ КАРТИНОК (img)
         if tag == "img":
             # Авто-ограничение максимальной ширины, чтобы картинки не вылезали за экран!
             element["max_width"] = computed_styles.get("max-width", "100%")
@@ -32,7 +28,6 @@ class CSSEngine:
             if computed_styles.get("border-radius"):
                 element["border_radius"] = computed_styles.get("border-radius")
 
-        # 🔍 2. СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ ПОИСКОВОЙ ВЫДАЧИ И КАРТОЧЕК
         classes = element.get("classes", [])
         is_search_card = any(cls in ("result", "g", "b_algo", "card", "product-card") for cls in classes)
         
@@ -45,7 +40,6 @@ class CSSEngine:
                 element["bg_color"] = self.resolve_css_color(computed_styles.get("background", ""), "#ffffff")
 
   def parse_css_vars(self):
-    """ Находит все CSS-переменные вида --var-name: value """
     css = self.style_text or ""
     matches = re.findall(r"--([a-zA-Z0-9_-]+)\s*:\s*([^;}]+)", css)
     self.css_vars = {}
@@ -53,10 +47,6 @@ class CSSEngine:
       self.css_vars[name.strip()] = value.strip().replace("!important", "")
 
   def resolve_css_color(self, value, fallback="white"):
-    """
-    УЛЬТРА-РАЗРЕШЕНИЕ ЦВЕТОВ! 🔥 
-    Ищет переменные, HEX, RGB, RGBA и даже сложный градиент/графему!
-    """
     if not value:
       return fallback
 
