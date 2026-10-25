@@ -9,3 +9,5 @@ Linux (современные дистрибутивы с легковесным
 macOS (версии macOS 12 Monterey, 13 Ventura, 14 Sonoma, 15 Sequoia и новее на процессорах Apple Silicon M1/M2/M3/M4) — за счет высокой производительности однопоточных вычислений процессоров Apple Silicon интерпретатор JS и отрисовка интерфейса будут работать максимально гладко.
 # Работает на основе встроенных библиотек:
 Thinter, socket, ssl, threading, urllib, 
+
+![логотип](resourses/ViBrow_logo.png)
