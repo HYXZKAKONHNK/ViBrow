@@ -10,4 +10,4 @@ macOS (версии macOS 12 Monterey, 13 Ventura, 14 Sonoma, 15 Sequoia и но
 # Работает на основе встроенных библиотек:
 Thinter, socket, ssl, threading, urllib, 
 
-![логотип](resourses/ViBrow_logo.png)
+![логотип](resourses/ViBrow_logof.png)
