@@ -7,6 +7,8 @@ Windows 10 (все модификации, x64) — при условии нор
 Linux (современные дистрибутивы с легковесным окружением, например: Ubuntu 22.04 / 24.04 LTS, Debian 12, Arch Linux с XFCE, MATE или KDE Plasma) — на Linux Tkinter и сокеты работают очень шустро, а накладные расходы ОС минимальны. Работает также на устройствах типа: Raspberry Pi, Yandex Alisa, Orange Pi, Banana Pi, Radxa Zero, FPGA и прочими микрокомпьютерами
 macOS (версии macOS 12 Monterey, 13 Ventura, 14 Sonoma, 15 Sequoia и новее на процессорах Apple Silicon M1/M2/M3/M4) — за счет высокой производительности однопоточных вычислений процессоров Apple Silicon интерпретатор JS и отрисовка интерфейса будут работать максимально гладко.
 # Работает на основе встроенных библиотек:
-Thinter, socket, ssl, threading, urllib, 
+Thinter, socket, ssl, threading, urllib,
+# Уникальные функции
+В ViBrow также присутствуют защитники от OOM (ошибки Out Of Memory), они работают в фоновых процессах и если 90% оперативной памяти занято, создают аварийный файл подкачки на 512МБ. Это очень важно для микрокомпьютеров
 
 ![логотип](resourses/ViBrow_logof.png)
