@@ -1,18 +1,26 @@
 const std = @import("std");
+const js = @import("js_value.zig");
 const compiler = @import("compiler.zig");
-const parser = @import("parser.zig");
 
-const STACK_SIZE = 256; // Маленький стек для экономии памяти
+const STACK_SIZE = 256;
 
-pub fn execute(allocator: std.mem.Allocator, bytecode: []compiler.Instruction) !parser.Expr {
-    var stack: [STACK_SIZE]f64 = undefined;
-    var sp: usize = 0; // stack pointer
+/// Выполняет байткод и возвращает JsValue
+pub fn execute(
+    allocator: std.mem.Allocator,
+    bytecode: []compiler.Instruction,
+) !js.JsValue {
+    _ = allocator; // пока не нужен, но будет для объектов
+
+    // Стек из JsValue — каждое значение всего 8 байт!
+    var stack: [STACK_SIZE]js.JsValue = undefined;
+    var sp: usize = 0;
 
     for (bytecode) |inst| {
         switch (inst.opcode) {
             .LOAD_CONST => {
                 if (sp >= STACK_SIZE) return error.StackOverflow;
-                stack[sp] = inst.operand;
+                // Загружаем число как JsValue
+                stack[sp] = js.fromNumber(inst.operand);
                 sp += 1;
             },
             .ADD => {
@@ -20,7 +28,13 @@ pub fn execute(allocator: std.mem.Allocator, bytecode: []compiler.Instruction) !
                 const b = stack[sp - 1];
                 const a = stack[sp - 2];
                 sp -= 2;
-                stack[sp] = a + b;
+                // Сложение (пока только числа)
+                if (js.isNumber(a) and js.isNumber(b)) {
+                    stack[sp] = js.fromNumber(js.getNumber(a) + js.getNumber(b));
+                } else {
+                    // TODO: конкатенация строк
+                    stack[sp] = js.JS_NAN;
+                }
                 sp += 1;
             },
             .SUB => {
@@ -28,7 +42,7 @@ pub fn execute(allocator: std.mem.Allocator, bytecode: []compiler.Instruction) !
                 const b = stack[sp - 1];
                 const a = stack[sp - 2];
                 sp -= 2;
-                stack[sp] = a - b;
+                stack[sp] = js.fromNumber(js.toNumber(a) - js.toNumber(b));
                 sp += 1;
             },
             .MUL => {
@@ -36,24 +50,25 @@ pub fn execute(allocator: std.mem.Allocator, bytecode: []compiler.Instruction) !
                 const b = stack[sp - 1];
                 const a = stack[sp - 2];
                 sp -= 2;
-                stack[sp] = a * b;
+                stack[sp] = js.fromNumber(js.toNumber(a) * js.toNumber(b));
                 sp += 1;
             },
             .DIV => {
                 if (sp < 2) return error.StackUnderflow;
                 const b = stack[sp - 1];
                 const a = stack[sp - 2];
-                if (b == 0) return error.DivisionByZero;
                 sp -= 2;
-                stack[sp] = a / b;
+                const divisor = js.toNumber(b);
+                if (divisor == 0) {
+                    stack[sp] = js.JS_NAN; // как в JS: 1/0 = Infinity, 0/0 = NaN
+                } else {
+                    stack[sp] = js.fromNumber(js.toNumber(a) / divisor);
+                }
                 sp += 1;
             },
         }
     }
 
     if (sp != 1) return error.InvalidProgram;
-    
-    const result = try allocator.create(parser.Expr);
-    result.* = .{ .number = stack[0] };
-    return result.*;
+    return stack[0];
 }
