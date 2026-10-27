@@ -12,3 +12,9 @@
 # Ошибки и их исправление
 Если у вас появилась ошибка ModuleNotFoundError: No module named 'tkinter': Введите в терминале команду sudo apt install python3-tk или для юзеров arch (фембоев) sudo pacman -S tk
 Если команда python/python3 не найдена, то установите python (10+ версии!!!). При старте обязательно должна стоять галочка "Add python.exe to PATH"
+
+# Для пользователей MacOS
+Пожалуйста, скомпилируйте себе сами компилятор для запуска. Я бы сам скомпилировал, но дело в том, что я на Windows, а он не может работать с MacOS. Скачайте Zig и введите эти команды (зависит от версии):
+zig build-lib -dynamic src\engine.zig -target x86_64-macos.12 -O ReleaseFast -femit-bin=native\macos_x64\libvijs_engine.dylib (папка macos_x64)
+zig build-lib -dynamic src\engine.zig -target aarch64-macos.12 -O ReleaseFast -femit-bin=native\macos_arm64\libvijs_engine.dylib (папка macos_arm64)
+(перед этим в папке vijs_engine создайте папку native. а там папку macos_arm64 или macos_x64)
