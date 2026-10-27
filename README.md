@@ -13,4 +13,6 @@ Thinter, socket, ssl, threading, urllib,
 
 # Инструкция на установке и запуске ViBrow – INSTRUCTIONS.md
 
+pfehh – твинк HYXZKAKONHNK
+
 ![логотип](resourses/ViBrow_logof.png)
