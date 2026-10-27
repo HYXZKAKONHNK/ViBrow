@@ -4,8 +4,7 @@ const parser = @import("parser.zig");
 const compiler = @import("compiler.zig");
 const vm = @import("vm.zig");
 
-// Ограничение памяти: 20 МБ на вкладку (как ты хотел)
-const MAX_MEMORY_PER_TAB = 20 * 1024 * 1024; // 20 МБ
+const MAX_MEMORY_PER_TAB = 120 * 1024 * 1024; // 120 МБ
 
 const EngineError = error{
     ParseError,
