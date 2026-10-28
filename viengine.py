@@ -28,6 +28,9 @@ except ImportError:
 
 START_PAGE_PATH = Path(__file__).resolve().parent / "resourses" / "vibrow_064.html"
 LOCAL_SERVER_PORT = 8765
+
+# 📦 Теги-контейнеры, внутри которых кнопки/ссылки раскладываются по своим
+# координатам (горизонтальные меню — в строку, вертикальные списки — столбцом)
 LAYOUT_CONTAINER_TAGS = {"nav", "menu", "ul", "ol", "li", "header", "footer", "section", "article", "form", "fieldset"}
 MENU_CLASS_NAMES = {"menu", "navbar", "nav", "navigation", "tabs", "tab", "sidebar", "dropdown", "toolbar", "breadcrumb", "breadcrumbs"}
 
@@ -163,6 +166,7 @@ class SimpleHTMLParser(HTMLParser):
     self.active_link = None
     self.active_button = None
     self.js_errors = []
+    # 🔗 Стек «контейнеров» (меню, навигации, карточки) для layout-координат
     self.container_stack = []
     self.element_containers = {}
     self.dom_order = {}
@@ -187,6 +191,44 @@ class SimpleHTMLParser(HTMLParser):
       return self.form_stack[-1]
     return {"id": None, "action": "", "method": "get"}
 
+  # 🔧 Эти методы раньше вызывались, но нигде не были определены —
+  # любой <a>/<button>/<input> со стилем ронял парсер с AttributeError.
+  # Теперь они делегируют в CSSEngine (parse_css_value / resolve_css_color).
+  def _parse_css_value(self, style, *keys):
+    try:
+      return css_engine.parse_css_value(style, *keys)
+    except Exception:
+      return ""
+
+  def _resolve_css_color(self, value, fallback="white"):
+    try:
+      return css_engine.resolve_css_color(value, fallback)
+    except Exception:
+      return fallback
+
+  # 🔧 Аналогично: метод вызывался из handle_data при закрытии <style>,
+  # но не был определён — падал на любой странице с инлайн-<style>.
+  def _parse_css_vars(self):
+    try:
+      css_engine.style_text = self.style_text
+      css_engine.parse_css_vars()
+      self.css_vars = css_engine.css_vars
+    except Exception:
+      pass
+
+  def _make_element(self, element_data, tag, attr_dict, style, font_family, bg_color):
+    """Единая сборка элемента: базовые CSS-поля + layout-контекст (координаты меню)."""
+    element_data.setdefault("bg_color", bg_color or self._parse_css_value(style, "background-color"))
+    element_data.setdefault("fg_color", self._parse_css_value(style, "color"))
+    element_data.setdefault("border_color", self._parse_css_value(style, "border-color", "border"))
+    element_data.setdefault("border_radius", self._parse_css_value(style, "border-radius"))
+    element_data.setdefault("id", attr_dict.get("id", ""))
+    element_data.setdefault("classes", attr_dict.get("class", "").split())
+    element_data.setdefault("style", style)
+    self._attach_layout_context(element_data, tag)
+    self.elements.append(element_data)
+    return element_data
+
   def handle_starttag(self, tag, attrs):
     self.current_tag = tag
     attr_dict = dict(attrs)
@@ -202,6 +244,9 @@ class SimpleHTMLParser(HTMLParser):
     style = attr_dict.get("style", "")
     font_family = "Arial"
 
+    # 📦 Контейнеры layout'а: меню, навигация, списки, секции, карточки.
+    # Внутри них кнопки и ссылки получают координаты относительно контейнера,
+    # а не страницы — это основа полноценного рендеринга.
     if tag in LAYOUT_CONTAINER_TAGS:
       self._dom_index += 1
       display_value = css_engine.parse_css_value(style, "display") or ""
@@ -270,10 +315,10 @@ class SimpleHTMLParser(HTMLParser):
           "id": attr_dict.get("id", ""),
           "classes": attr_dict.get("class", "").split(),
           "style": style,
-          "bg_color": "",
-          "fg_color": "",
-          "border_color": "",
-          "border_radius": "",
+          "bg_color": self._parse_css_value(style, "background-color", "background"),
+          "fg_color": self._parse_css_value(style, "color"),
+          "border_color": self._parse_css_value(style, "border-color", "border"),
+          "border_radius": self._parse_css_value(style, "border-radius"),
           "form_id": form["id"],
           "action_url": form["action"],
           "method": form["method"],
@@ -284,7 +329,7 @@ class SimpleHTMLParser(HTMLParser):
 
     elif tag == "textarea":
       form = self._current_form()
-      self.elements.append({
+      element_data = {
           "tag": "textarea",
           "text": "",
           "placeholder": attr_dict.get("placeholder", ""),
@@ -292,51 +337,46 @@ class SimpleHTMLParser(HTMLParser):
           "id": attr_dict.get("id", ""),
           "classes": attr_dict.get("class", "").split(),
           "style": style,
+          "selector_tag": "textarea",
           "form_id": form["id"],
           "action_url": form["action"],
           "method": form["method"],
           "font": font_family,
-      })
+      }
+      self._attach_layout_context(element_data, tag)
+      self.elements.append(element_data)
 
     if tag == "img":
       alt_text = "[Изображение]"
       if "alt" in attr_dict:
         alt_text = f"[Картинка: {attr_dict['alt']}]"
-      self.elements.append({
+      self._make_element({
           "tag": "img",
           "text": alt_text,
           "href": "",
           "src": attr_dict.get("src", ""),
           "font": font_family,
           "action_url": attr_dict.get("src", ""),
-          "bg_color": bg_color,
-          "fg_color": self._parse_css_value(style, "color"),
-          "border_color": self._parse_css_value(style, "border-color", "border"),
-          "border_radius": self._parse_css_value(style, "border-radius"),
-      })
+          "selector_tag": "img",
+      }, tag, attr_dict, style, font_family, bg_color)
 
-    elif tag == "a":
+    if tag == "a":
       href = attr_dict.get("href", "")
-      self.elements.append({
+      self.active_link = self._make_element({
           "tag": "a",
           "text": "",
           "href": href,
-          "id": attr_dict.get("id", ""),
           "font": font_family,
           "action_url": href,
           "method": "get",
-          "bg_color": bg_color,
-          "fg_color": self._parse_css_value(style, "color"),
-          "border_color": self._parse_css_value(style, "border-color", "border"),
-          "border_radius": self._parse_css_value(style, "border-radius"),
-      })
-      self.active_link = self.elements[-1]
+          "selector_tag": "a",
+      }, tag, attr_dict, style, font_family, bg_color)
 
     elif tag == "button":
       form = self._current_form()
       action_url = attr_dict.get("formaction") or form["action"]
       method = (attr_dict.get("formmethod") or form["method"] or "get").lower()
-      self.elements.append({
+      self.active_button = self._make_element({
           "tag": "button",
           "text": "",
           "href": "",
@@ -347,23 +387,15 @@ class SimpleHTMLParser(HTMLParser):
           "submit": attr_dict.get("type", "submit").lower() not in ["button", "reset"],
           "name": attr_dict.get("name", ""),
           "value": attr_dict.get("value", ""),
-          "id": attr_dict.get("id", ""),
           "selector_tag": "button",
-          "classes": attr_dict.get("class", "").split(),
-          "style": style,
-          "bg_color": bg_color or self._parse_css_value(style, "background-color"),
-          "fg_color": self._parse_css_value(style, "color"),
-          "border_color": self._parse_css_value(style, "border-color"),
-          "border_radius": self._parse_css_value(style, "border-radius"),
-      })
-      self.active_button = self.elements[-1]
+      }, tag, attr_dict, style, font_family, bg_color)
 
     elif tag == "input" and attr_dict.get("type", "").lower() in ["submit", "button"]:
       form = self._current_form()
       input_type = attr_dict.get("type", "").lower()
       action_url = attr_dict.get("formaction") or form["action"]
       method = (attr_dict.get("formmethod") or form["method"] or "get").lower()
-      self.elements.append({
+      self._make_element({
           "tag": "button",
           "text": attr_dict.get("value") or "Кнопка",
           "href": "",
@@ -374,16 +406,9 @@ class SimpleHTMLParser(HTMLParser):
           "submit": input_type == "submit",
           "name": attr_dict.get("name", ""),
           "value": attr_dict.get("value", ""),
-          "id": attr_dict.get("id", ""),
           "input_type": input_type,
           "selector_tag": "input",
-          "classes": attr_dict.get("class", "").split(),
-          "style": style,
-          "bg_color": bg_color or self._parse_css_value(style, "background-color"),
-          "fg_color": self._parse_css_value(style, "color"),
-          "border_color": self._parse_css_value(style, "border-color"),
-          "border_radius": self._parse_css_value(style, "border-radius"),
-      })
+      }, tag, attr_dict, style, font_family, bg_color)
     else:
       self.default_font = font_family
 
