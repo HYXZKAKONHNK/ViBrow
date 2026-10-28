@@ -140,6 +140,56 @@ class CSSEngine:
         return value.strip()
     return ""
 
+  @staticmethod
+  def _dom_attr(element, name):
+    """Атрибут DOM-узла (viengine_dom.Element) — для layout-расчётов."""
+    getter = getattr(element, "getAttribute", None)
+    if not callable(getter):
+      return ""
+    try:
+      return str(getter(name) or "")
+    except Exception:
+      return ""
+
+  def compute_layout_styles(self, dom_element):
+    """Layout-свойства (display / flex-direction) конкретного DOM-узла.
+
+    Используется парсером viengine.py, чтобы понять, раскладывать ли детей
+    контейнера в строку (горизонтальное меню) или столбцом. Считает каскад:
+    внешние правила CSS + inline-стиль элемента. Никогда не бросает исключений.
+    """
+    styles = {}
+    try:
+        rules = self.style_rules or []
+    except Exception:
+        rules = []
+    tag = str(getattr(dom_element, "localName", "") or "").lower()
+    elem_id = self._dom_attr(dom_element, "id")
+    classes = set(self._dom_attr(dom_element, "class").split())
+    for selector, declarations in rules:
+        try:
+            simple = re.sub(r"::?[\w-]+(?:\([^)]*\))?", "", selector).strip().split()
+            if not simple:
+                continue
+            last = simple[-1]
+            tag_match = re.match(r"^[a-zA-Z][\w-]*", last)
+            if tag_match and tag_match.group(0).lower() != tag:
+                continue
+            id_match = re.search(r"#([\w-]+)", last)
+            if id_match and id_match.group(1) != elem_id:
+                continue
+            needed_classes = set(re.findall(r"\.([\w-]+)", last))
+            if not needed_classes.issubset(classes):
+                continue
+            styles.update(declarations)
+        except Exception:
+            continue
+    try:
+        styles.update(self.parse_css_declarations(self._dom_attr(dom_element, "style")))
+    except Exception:
+        pass
+    return styles
+
   def selector_matches(self, selector, element):
     """ Проверка совпадения CSS-селектора с элементом """
     selector = re.sub(r"::?[\w-]+(?:\([^)]*\))?", "", selector).strip()
