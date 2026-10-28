@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, quote, urljoin, urlsplit, quote_plus
 
 import requests
 from viengine_js import EventTarget, JSEvent, JavaScriptEngine
-from viengine_dom import Document, parse_html
+from viengine_dom import Document, Element, Node, parse_html
 from local_cache import LocalCache
 from viengine_css import CSSEngine
 
@@ -28,6 +28,8 @@ except ImportError:
 
 START_PAGE_PATH = Path(__file__).resolve().parent / "resourses" / "vibrow_064.html"
 LOCAL_SERVER_PORT = 8765
+LAYOUT_CONTAINER_TAGS = {"nav", "menu", "ul", "ol", "li", "header", "footer", "section", "article", "form", "fieldset"}
+MENU_CLASS_NAMES = {"menu", "navbar", "nav", "navigation", "tabs", "tab", "sidebar", "dropdown", "toolbar", "breadcrumb", "breadcrumbs"}
 
 
 class LocalBridgeServer:
@@ -161,6 +163,24 @@ class SimpleHTMLParser(HTMLParser):
     self.active_link = None
     self.active_button = None
     self.js_errors = []
+    self.container_stack = []
+    self.element_containers = {}
+    self.dom_order = {}
+    self._dom_index = 0
+
+  def _attach_layout_context(self, element_data, tag):
+    """Запоминает DOM-родителя элемента — нужно для координат кнопок и меню."""
+    self._dom_index += 1
+    element_data["dom_order"] = self._dom_index
+    parent = None
+    for entry in reversed(self.container_stack):
+      if entry["end_tag"] == tag:
+        continue
+      parent = entry
+      break
+    if parent is not None:
+      element_data["parent_dom_id"] = parent["id"]
+      self.element_containers[self._dom_index] = parent["id"]
 
   def _current_form(self):
     if self.form_stack:
@@ -181,6 +201,27 @@ class SimpleHTMLParser(HTMLParser):
 
     style = attr_dict.get("style", "")
     font_family = "Arial"
+
+    if tag in LAYOUT_CONTAINER_TAGS:
+      self._dom_index += 1
+      display_value = css_engine.parse_css_value(style, "display") or ""
+      flex_direction = css_engine.parse_css_value(style, "flex-direction") or ""
+      classes = attr_dict.get("class", "").split()
+      is_menu_like = (
+          tag in ("nav", "menu")
+          or any(cls in MENU_CLASS_NAMES for cls in classes)
+      )
+      horizontal = (
+          display_value in ("flex", "inline-flex") and flex_direction != "column"
+      ) or is_menu_like or tag == "menu"
+      container_entry = {
+          "id": self._dom_index,
+          "tag": tag,
+          "end_tag": tag,
+          "horizontal": bool(horizontal),
+          "is_menu": bool(is_menu_like),
+      }
+      self.container_stack.append(container_entry)
 
     if tag == "link" and "stylesheet" in (attr_dict.get("rel") or "").lower().split():
       if attr_dict.get("href"):
@@ -219,7 +260,7 @@ class SimpleHTMLParser(HTMLParser):
 
     if tag == "input" and attr_dict.get("type", "text").lower() not in ["hidden", "submit", "button", "reset"]:
       form = self._current_form()
-      self.elements.append({
+      element_data = {
           "tag": "input",
           "text": attr_dict.get("value", ""),
           "placeholder": attr_dict.get("placeholder", ""),
@@ -237,7 +278,9 @@ class SimpleHTMLParser(HTMLParser):
           "action_url": form["action"],
           "method": form["method"],
           "font": font_family,
-      })
+      }
+      self._attach_layout_context(element_data, tag)
+      self.elements.append(element_data)
 
     elif tag == "textarea":
       form = self._current_form()
