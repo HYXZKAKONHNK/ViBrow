@@ -28,9 +28,6 @@ except ImportError:
 
 START_PAGE_PATH = Path(__file__).resolve().parent / "resourses" / "vibrow_064.html"
 LOCAL_SERVER_PORT = 8765
-
-# 📦 Теги-контейнеры, внутри которых кнопки/ссылки раскладываются по своим
-# координатам (горизонтальные меню — в строку, вертикальные списки — столбцом)
 LAYOUT_CONTAINER_TAGS = {"nav", "menu", "ul", "ol", "li", "header", "footer", "section", "article", "form", "fieldset"}
 MENU_CLASS_NAMES = {"menu", "navbar", "nav", "navigation", "tabs", "tab", "sidebar", "dropdown", "toolbar", "breadcrumb", "breadcrumbs"}
 
@@ -185,15 +182,41 @@ class SimpleHTMLParser(HTMLParser):
     if parent is not None:
       element_data["parent_dom_id"] = parent["id"]
       self.element_containers[self._dom_index] = parent["id"]
+      # Горизонтальные контейнеры (меню в строку) наследуются вложенными:
+      # <a> внутри <li> внутри горизонтального <nav> тоже идёт в строку.
+      if parent.get("horizontal"):
+        element_data["inline_flow"] = True
+
+  def _register_container(self, tag, attr_dict, style):
+    """Регистрирует layout-контейнер (nav/menu/ul/li/form...) в стеке."""
+    self._dom_index += 1
+    display_value = css_engine.parse_css_value(style, "display") or ""
+    flex_direction = css_engine.parse_css_value(style, "flex-direction") or ""
+    classes = attr_dict.get("class", "").split()
+    is_menu_like = (
+        tag in ("nav", "menu")
+        or any(cls in MENU_CLASS_NAMES for cls in classes)
+    )
+    horizontal = (
+        (display_value in ("flex", "inline-flex") and flex_direction != "column")
+        or is_menu_like
+        or tag == "menu"
+    )
+    container_entry = {
+        "id": self._dom_index,
+        "tag": tag,
+        "end_tag": tag,
+        "horizontal": bool(horizontal),
+        "is_menu": bool(is_menu_like),
+    }
+    self.container_stack.append(container_entry)
+    return container_entry
 
   def _current_form(self):
     if self.form_stack:
       return self.form_stack[-1]
     return {"id": None, "action": "", "method": "get"}
 
-  # 🔧 Эти методы раньше вызывались, но нигде не были определены —
-  # любой <a>/<button>/<input> со стилем ронял парсер с AttributeError.
-  # Теперь они делегируют в CSSEngine (parse_css_value / resolve_css_color).
   def _parse_css_value(self, style, *keys):
     try:
       return css_engine.parse_css_value(style, *keys)
@@ -229,6 +252,19 @@ class SimpleHTMLParser(HTMLParser):
     self.elements.append(element_data)
     return element_data
 
+  def _open_inline_container(self, tag):
+    """Кладёт в стек контейнеров «строчный» элемент (<a>, <button>), чтобы его
+    закрытие всегда снимало со стека всё, что открылось внутри него."""
+    self._dom_index += 1
+    self.container_stack.append({"id": self._dom_index, "tag": tag, "end_tag": tag})
+
+  def _close_container(self, tag):
+    """Снимает со стека контейнер с указанным end_tag вместе со всеми вложенными."""
+    for i in range(len(self.container_stack) - 1, -1, -1):
+      if self.container_stack[i]["end_tag"] == tag:
+        del self.container_stack[i:]
+        return
+
   def handle_starttag(self, tag, attrs):
     self.current_tag = tag
     attr_dict = dict(attrs)
@@ -248,25 +284,7 @@ class SimpleHTMLParser(HTMLParser):
     # Внутри них кнопки и ссылки получают координаты относительно контейнера,
     # а не страницы — это основа полноценного рендеринга.
     if tag in LAYOUT_CONTAINER_TAGS:
-      self._dom_index += 1
-      display_value = css_engine.parse_css_value(style, "display") or ""
-      flex_direction = css_engine.parse_css_value(style, "flex-direction") or ""
-      classes = attr_dict.get("class", "").split()
-      is_menu_like = (
-          tag in ("nav", "menu")
-          or any(cls in MENU_CLASS_NAMES for cls in classes)
-      )
-      horizontal = (
-          display_value in ("flex", "inline-flex") and flex_direction != "column"
-      ) or is_menu_like or tag == "menu"
-      container_entry = {
-          "id": self._dom_index,
-          "tag": tag,
-          "end_tag": tag,
-          "horizontal": bool(horizontal),
-          "is_menu": bool(is_menu_like),
-      }
-      self.container_stack.append(container_entry)
+      self._register_container(tag, attr_dict, style)
 
     if tag == "link" and "stylesheet" in (attr_dict.get("rel") or "").lower().split():
       if attr_dict.get("href"):
@@ -322,7 +340,7 @@ class SimpleHTMLParser(HTMLParser):
           "form_id": form["id"],
           "action_url": form["action"],
           "method": form["method"],
-          "font": font_family,
+          "font": font_family
       }
       self._attach_layout_context(element_data, tag)
       self.elements.append(element_data)
@@ -371,6 +389,7 @@ class SimpleHTMLParser(HTMLParser):
           "method": "get",
           "selector_tag": "a",
       }, tag, attr_dict, style, font_family, bg_color)
+      self._open_inline_container("a")
 
     elif tag == "button":
       form = self._current_form()
@@ -1150,6 +1169,22 @@ class SimpleBrowser:
     )
 
     y_offset = 24
+    # 🧭 Layout-поток: элементы с inline_flow (ссылки/кнопки внутри горизонтальных
+    # меню из container_stack) раскладываются в строку, а не столбцом.
+    flow_x = 20            # текущий x следующего элемента в строке
+    flow_y = y_offset      # базовый y всей строки
+    flow_bottom = y_offset # нижняя граница самой низкой кнопки в строке
+    in_inline_flow = False
+
+    def end_inline_flow_row():
+      """Переводит поток на новую строку после горизонтального меню."""
+      nonlocal y_offset, flow_x, flow_y, flow_bottom, in_inline_flow
+      y_offset = max(flow_bottom + 14, flow_y + 36)
+      flow_x = 20
+      flow_y = y_offset
+      flow_bottom = y_offset
+      in_inline_flow = False
+
     for index, el in enumerate(parser.elements):
 
       tag = el["tag"]
@@ -1158,6 +1193,8 @@ class SimpleBrowser:
       site_font = el.get("font", "Arial")
 
       if tag in ["input", "textarea"]:
+        if in_inline_flow:
+          end_inline_flow_row()
         field_width = max(canvas_width - 70, 200)
         field_height = 90 if tag == "textarea" else 30
         field_radius = self._border_radius_pixels(el.get("border_radius"))
@@ -1239,9 +1276,16 @@ class SimpleBrowser:
           )
           self.page_widgets.append(field)
         y_offset += 100 if tag == "textarea" else 40
+        flow_x = 20
+        flow_y = y_offset
+        flow_bottom = y_offset
         continue
 
-      if index > 0:
+      if tag == "img":
+        if in_inline_flow:
+          end_inline_flow_row()
+
+      if index > 0 and not in_inline_flow:
         self.canvas.create_line(
             24, y_offset - 8, canvas_width - 24, y_offset - 8,
             fill="#dfe5eb", width=1
@@ -1276,6 +1320,10 @@ class SimpleBrowser:
       if not text:
         continue
 
+      if in_inline_flow and not el.get("inline_flow"):
+        end_inline_flow_row()
+
+
       try:
         if tag in ["h1", "h2", "h3"]:
           font = (site_font, 16, "bold")
@@ -1302,8 +1350,22 @@ class SimpleBrowser:
         border_color = self._normalize_color(el.get("border_color"), "#a6a6a6")
         text_color = self._normalize_color(el.get("fg_color"), "#202124")
         button_radius = self._border_radius_pixels(el.get("border_radius"))
-        x1, y1 = indent - 5, y_offset - 6
-        x2, y2 = indent + max(len(text) * 7 + 20, 110), y_offset + 28
+        # Реальная ширина кнопки по тексту — нужна для раскладки меню в строку
+        button_width = max(len(text[:40]) * 7 + 20, 110)
+        button_height = 34
+        if el.get("inline_flow") and tag in ("button", "a"):
+          # Горизонтальное меню: идём по flow_x, при переполнении — новая строка
+          if flow_x + button_width > canvas_width - 24 and flow_x > 20:
+            flow_y = flow_bottom + 10
+            flow_x = 20
+          x1, y1 = flow_x, flow_y
+          x2, y2 = flow_x + button_width, flow_y + button_height
+          flow_x = x2 + 8
+          flow_bottom = max(flow_bottom, y2)
+          in_inline_flow = True
+        else:
+          x1, y1 = indent - 5, y_offset - 6
+          x2, y2 = indent + button_width, y_offset + 28
         self._draw_rounded_button(
             x1, y1, x2, y2,
             bg_color=button_fill,
@@ -1313,6 +1375,26 @@ class SimpleBrowser:
             text=text[:40],
             font=(site_font, 11, "bold"),
         )
+      elif el.get("inline_flow") and tag == "a":
+        # Ссылка внутри горизонтального меню — «таб» в строке
+        link_width = max(len(text[:80]) * 7 + 16, 60)
+        link_height = 26
+        if flow_x + link_width > canvas_width - 24 and flow_x > 20:
+          flow_y = flow_bottom + 10
+          flow_x = 20
+        x1, y1 = flow_x, flow_y
+        x2, y2 = flow_x + link_width, flow_y + link_height
+        self.canvas.create_rectangle(
+            x1, y1, x2, y2, fill="#f3f5f7", outline="#dfe5eb", width=1
+        )
+        self.canvas.create_text(
+            (x1 + x2) / 2, (y1 + y2) / 2, text=text[:80],
+            anchor="center", font=font, fill=color,
+        )
+        flow_x = x2 + 6
+        flow_bottom = max(flow_bottom, y2)
+        in_inline_flow = True
+        
       else:
         block_x1 = 18
         block_x2 = canvas_width - 18
@@ -1342,10 +1424,11 @@ class SimpleBrowser:
             "value": el.get("value", ""),
         })
 
-      if tag != "button":
-        y_offset += 30
-      else:
-        y_offset += 45
+      if not in_inline_flow:
+        y_offset += 45 if tag == "button" else 30
+
+    if in_inline_flow:
+      end_inline_flow_row()
 
     self.canvas.bind("<Button-1>", self.on_canvas_click)
     self.canvas.configure(scrollregion=(0, 0, canvas_width, y_offset + 50))
@@ -1377,8 +1460,129 @@ class SimpleBrowser:
     rendered_parser.style_text += parser.external_style_text
     rendered_parser.js_errors = parser.js_errors
     rendered_parser.bg_color = css_engine.detect_background_from_css(rendered_parser.style_text, default_bg="white")
-    css_engine.apply_css_styles(rendered_parser) # Если твоя библиотека умеет применять стили к элементам
+    # apply_css_styles читает каскад из self.style_text — синхронизируем его
+    # с собранными стилями страницы (инлайн-<style> + внешние таблицы).
+    css_engine.style_text = rendered_parser.style_text
+    # apply_css_styles ожидает СПИСОК элементов (for element in elements),
+    # а не парсер — раньше сюда передавался сам parser.
+    css_engine.apply_css_styles(rendered_parser.elements)
+    # 🧭 Layout-поток считаем по настоящему DOM (viengine_dom), а не по строкам:
+    # только там видна вложенность nav/ul/li и каскад display:flex из CSS.
+    self._compute_layout_flow(rendered_parser, document)
     return rendered_parser
+
+  @staticmethod
+  def _direct_element_children(node):
+    children = []
+    try:
+      for child in node.childNodes:
+        if getattr(child, "nodeType", None) == Node.ELEMENT_NODE:
+          children.append(child)
+    except Exception:
+      pass
+    return children
+
+  def _compute_layout_flow(self, rendered_parser, document):
+    """Проставляет элементам inline_flow / parent_dom_id / dom_order.
+
+    Обходит DOM-дерево (viengine_dom.Document) от <body>, наследует горизонталь
+    контейнеров (nav/menu/display:flex без flex-direction:column — см.
+    CSSEngine.compute_layout_styles) и сопоставляет обход с плоским списком
+    rendered_parser.elements по tag+href/src+text. Никаких исключений: при
+    рассинхронизации дерева и списка просто ничего не проставляется.
+    """
+    body = getattr(document, "body", None)
+    if body is None:
+      return
+    flat = sorted(rendered_parser.elements, key=lambda el: el.get("dom_order", 0))
+    used = set()
+
+    def find_match(tag, text, href="", src=""):
+      text = (text or "").strip()[:80]
+      for i, el in enumerate(flat):
+        if i in used or el.get("tag") != tag:
+          continue
+        el_text = (el.get("text") or "").strip()[:80]
+        if text and el_text and el_text != text:
+          continue
+        if tag == "a" and href and el.get("href", "") != href:
+          continue
+        if tag == "img" and src and el.get("src", "") != src:
+          continue
+        used.add(i)
+        return el
+      return None
+
+    def link_text(dom_el):
+      try:
+        return dom_el.textContent.strip()[:80]
+      except Exception:
+        return ""
+
+    order = [0]
+
+    def walk(node, horizontal, parent_id):
+      for child in self._direct_element_children(node):
+        tag = str(getattr(child, "localName", "") or "").lower()
+        order[0] += 1
+        my_id = order[0]
+        try:
+            styles = css_engine.compute_layout_styles(child)
+        except Exception:
+            styles = {}
+        display = (styles.get("display") or "").lower()
+        flex_dir = (styles.get("flex-direction") or "").lower()
+        classes = set((css_engine._dom_attr(child, "class")).split())
+        # Явный column/grid всегда побеждает «менюшность» класса:
+        # .sidebar { display:flex; flex-direction:column } — вертикальное меню.
+        explicit_vertical = flex_dir == "column" or display in ("grid", "inline-grid")
+        is_container = (
+            tag in LAYOUT_CONTAINER_TAGS
+            or tag in ("div", "span", "header", "footer")
+            and (display in ("flex", "grid", "inline-flex") or classes & MENU_CLASS_NAMES)
+        )
+        child_horizontal = (
+            not explicit_vertical
+            and (
+                display in ("flex", "inline-flex")
+                or tag in ("nav", "menu")
+                or bool(classes & MENU_CLASS_NAMES)
+            )
+        )
+        if tag in ("a", "button") or (tag == "input" and css_engine._dom_attr(child, "type").lower() in ("submit", "button")):
+            el = find_match(
+                "a" if tag == "a" else "button",
+                link_text(child),
+                href=css_engine._dom_attr(child, "href"),
+            )
+            if el is not None:
+              el["dom_order"] = my_id
+              if parent_id is not None:
+                el["parent_dom_id"] = parent_id
+              # Инлайн-поток определяется родителем элемента: горизонтальный
+              # контейнер раскладывает своих детей в строку (в CSS дети flex-row
+              # идут в строке независимо от того, сам ли он nav или div внутри).
+              el["inline_flow"] = bool(horizontal)
+        elif tag == "input":
+            el = find_match("input", css_engine._dom_attr(child, "value"), src="")
+            if el is not None:
+              el["dom_order"] = my_id
+              if parent_id is not None:
+                el["parent_dom_id"] = parent_id
+        elif tag == "img":
+            el = find_match("img", "", src=css_engine._dom_attr(child, "src"))
+            if el is not None:
+              el["dom_order"] = my_id
+              if parent_id is not None:
+                el["parent_dom_id"] = parent_id
+        # Для детей узла: горизонтальность = свойство САМОГО узла;
+        # parent_id обновляем только если узел — layout-контейнер.
+        walk(child, child_horizontal, my_id if is_container else parent_id)
+
+    try:
+      walk(body, False, None)
+    except RecursionError:
+      pass
 
   def _execute_page_scripts(self, parser, base_url):
     from urllib.parse import urljoin
@@ -1795,7 +1999,7 @@ class SimpleBrowser:
           return
 
         messagebox.showinfo(
-            "Button", f"Кликнули по интерактивному элементу: {clicked_text}"
+            "Button", f"Кликнули по интерактивному элементу: {clicked_text}" # затычка
         )
         return
 
@@ -1808,7 +2012,9 @@ class SimpleBrowser:
     parser.external_style_text = self.page_external_style_text
     parser.style_text += parser.external_style_text
     parser.bg_color = css_engine.detect_background_from_css(parser.style_text, default_bg="white")
-    css_engine.apply_css_styles(parser)
+    css_engine.style_text = parser.style_text
+    css_engine.apply_css_styles(parser.elements)
+    self._compute_layout_flow(parser, self.page_document)
     self.render_generic_page(parser)
 
   def clear_all_cache(self):
