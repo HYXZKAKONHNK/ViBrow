@@ -27,47 +27,68 @@ const EngineError = error{
 
 /// Выполняет JS-код и возвращает упакованный JsValue (u64).
 /// Возвращает JS_NAN при любой ошибке.
+/// Кэш результатов: банковские бандлы повторяют одни и те же выражения —
+/// второй прогон не должен платить за лексер/парсер/комплятор.
+const CacheEntry = struct {
+    key: []u8,
+    value: js.JsValue,
+};
+
+var result_cache: ?std.ArrayList(CacheEntry) = null;
+const MAX_CACHE_ENTRIES = 2048;
+
+fn cacheGet(key: []const u8) ?js.JsValue {
+    const cache = result_cache orelse return null;
+    for (cache.items) |entry| {
+        if (std.mem.eql(u8, entry.key, key)) return entry.value;
+    }
+    return null;
+}
+
+fn cachePut(key: []const u8, value: js.JsValue) void {
+    // page_allocator не освобождает — ограничиваем число записей
+    if (result_cache == null) {
+        result_cache = std.ArrayList(CacheEntry).init(std.heap.page_allocator);
+    }
+    const cache = &result_cache.?;
+    if (cache.items.len >= MAX_CACHE_ENTRIES) return;
+    const duped = std.heap.page_allocator.dupe(u8, key) catch return;
+    cache.append(.{ .key = duped, .value = value }) catch {
+        std.heap.page_allocator.free(duped);
+        return;
+    };
+}
+
+/// Выполняет JS-код и возвращает упакованный JsValue (u64).
+/// Возвращает JS_NAN при любой ошибке.
 fn executeInternal(js_code: []const u8) js.JsValue {
+    // Шаг 0: кэш по исходнику
+    if (cacheGet(js_code)) |cached| return cached;
+
     // Создаём аллокатор с защитой от переполнения памяти.
-    // GeneralPurposeAllocator (GPA) — это лучший аллокатор Zig:
-    // он ловит утечки памяти и переполнения в debug-режиме.
     var gpa = std.heap.GeneralPurposeAllocator(.{
         .enable_memory_limit = true,
         .memory_limit = MAX_MEMORY_PER_TAB,
     }){};
-    
-    // defer гарантирует, что память освободится при выходе из функции.
-    // Аналог try/finally в Python.
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     // Шаг 1: Лексер — разбиваем код на токены
-    const tokens = lexer.tokenize(allocator, js_code) catch |err| {
-        std.debug.print("[ViBrow] Lex error: {}\n", .{err});
-        return js.JS_NAN;
-    };
-    defer allocator.free(tokens); // Освобождаем массив токенов
+    const tokens = lexer.tokenize(allocator, js_code) catch return js.JS_NAN;
+    defer allocator.free(tokens);
 
     // Шаг 2: Парсер — строим AST (дерево)
-    const ast = parser.parse(allocator, tokens) catch |err| {
-        std.debug.print("[ViBrow] Parse error: {}\n", .{err});
-        return js.JS_NAN;
-    };
-    defer ast.destroy(allocator); // Освобождаем дерево
+    const ast = parser.parse(allocator, tokens) catch return js.JS_NAN;
+    defer ast.destroy(allocator);
 
     // Шаг 3: Компилятор — превращаем AST в байткод
-    const bytecode = compiler.compile(allocator, ast) catch |err| {
-        std.debug.print("[ViBrow] Compile error: {}\n", .{err});
-        return js.JS_NAN;
-    };
-    defer allocator.free(bytecode); // Освобождаем байткод
+    const bytecode = compiler.compile(allocator, ast) catch return js.JS_NAN;
+    defer allocator.free(bytecode);
 
     // Шаг 4: VM — выполняем байткод и получаем JsValue
-    const result = vm.execute(allocator, bytecode) catch |err| {
-        std.debug.print("[ViBrow] Runtime error: {}\n", .{err});
-        return js.JS_NAN;
-    };
+    const result = vm.execute(allocator, bytecode) catch return js.JS_NAN;
 
+    cachePut(js_code, result);
     return result;
 }
 
@@ -125,6 +146,12 @@ pub fn main() !void {
         .{ .code = "100 / 5 + 10", .expected = 30.0 },
         .{ .code = "2 + 3 * 4", .expected = 14.0 }, // Приоритет операторов
         .{ .code = "(2 + 3) * 4", .expected = 20.0 },
+        .{ .code = "-5 + 3", .expected = -2.0 },          // унарный минус
+        .{ .code = "7 % 3", .expected = 1.0 },            // остаток
+        .{ .code = "2 ** 10", .expected = 1024.0 },       // степень
+        .{ .code = "2 ** 3 ** 2", .expected = 512.0 },    // правоассоциативность
+        .{ .code = "// comment\n6 * 7", .expected = 42.0 },
+        .{ .code = "/* block */ 1 + 1", .expected = 2.0 },
     };
 
     var passed: usize = 0;
@@ -153,10 +180,4 @@ pub fn main() !void {
     std.debug.print("Тип результата (0=число): {}\n", .{
         vijs_get_type("5 + 3")
     });
-}
-
-// Тестовая функция для проверки из командной строки
-pub fn main() !void {
-    const result = vijs_execute("5 + 3 * 2");
-    std.debug.print("Result: {}\n", .{result}); // Должно быть 11
 }
