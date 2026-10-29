@@ -88,21 +88,34 @@ pub fn fromString(ptr: *anyopaque) JsValue {
 // Проверки типа (очень быстрые — побитовые операции)
 // ─────────────────────────────────────────────────────────────
 
+/// Проверить, лежит ли значение в NaN-пространстве (не-chrome QNaN).
+/// true — это tagged-значение; false — обычное f64 (число/inf).
+fn isQNaN(v: JsValue) bool {
+    // Экспонента = all ones и мантисса != 0 → NaN (тихий или сигнальный).
+    const exponent = (v >> 52) & 0x7FF;
+    if (exponent != 0x7FF) return false;
+    const mantissa = v & 0x000F_FFFF_FFFF_FFFF;
+    return mantissa != 0;
+}
+
 /// Получить тег типа из JsValue
 pub fn getTag(v: JsValue) Tag {
-    // Если экспонента не все единицы → это число
-    const exponent = (v >> 52) & 0x7FF;
-    if (exponent != 0x7FF) {
-        return .number;
-    }
-    // Если мантисса = 0 → это Infinity (тоже число)
-    const mantissa = v & 0x000F_FFFF_FFFF_FFFF;
-    if (mantissa == 0) {
-        return .number;
-    }
-    // Иначе извлекаем тег из битов 51-48
-    const tag_bits = (v & TAG_MASK) >> TAG_SHIFT;
-    return @as(Tag, @enumFromInt(tag_bits));
+    // Обычные числа и ±Infinity не лежат в NaN-пространстве
+    if (!isQNaN(v)) return .number;
+    // Извлекаем тег из битов 51-48
+    const tag_bits: u4 = @truncate((v & TAG_MASK) >> TAG_SHIFT);
+    // Тег 0 — "сырой" машинный NaN (например, результат 0/0 без нормализации),
+    // 8-15 зарезервированы. Мусор трактуем как js_nan, не паникуем.
+    return switch (tag_bits) {
+        1 => .undefined,
+        2 => .null,
+        3 => .boolean_false,
+        4 => .boolean_true,
+        5 => .js_nan,
+        6 => .object,
+        7 => .string,
+        else => .js_nan,
+    };
 }
 
 /// Является ли значение числом?
@@ -225,3 +238,4 @@ pub fn dump(v: JsValue) void {
         .string => std.debug.print("[string]@{x}", .{v & PAYLOAD_MASK}),
     }
 }
+
