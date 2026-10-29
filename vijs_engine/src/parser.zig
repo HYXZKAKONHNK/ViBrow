@@ -53,9 +53,15 @@ pub const Parser = struct {
     fn precedence(op: lexer.TokenType) u8 {
         return switch (op) {
             .plus, .minus => 1,
-            .multiply, .divide => 2,
+            .multiply, .divide, .modulo => 2,
+            .power => 3,
             else => 0,
         };
+    }
+
+    /// '**' — правоассоциативный: 2 ** 3 ** 2 == 2 ** (3 ** 2)
+    fn isRightAssociative(op: lexer.TokenType) bool {
+        return op == .power;
     }
 
     // Рекурсивный спуск с учетом приоритетов
@@ -68,7 +74,7 @@ pub const Parser = struct {
             if (prec <= min_prec) break;
 
             _ = self.consume(); // съедаем оператор
-            const right = try self.parseExpression(prec);
+            const right = try self.parseExpression(if (isRightAssociative(op)) prec - 1 else prec);
 
             const bin = try self.allocator.create(BinaryExpr);
             bin.* = .{ .op = op, .left = left, .right = right };
@@ -82,6 +88,33 @@ pub const Parser = struct {
     }
 
     fn parsePrimary(self: *Parser) !*Expr {
+        // Унарные плюс и минус: -5, -(2+3), --x не поддерживаем, только -число/-(...)
+        const next_tok = self.peek();
+        if (next_tok.type == .minus or next_tok.type == .plus) {
+            _ = self.consume();
+            const operand = try self.parseUnary();
+            const expr = try self.allocator.create(Expr);
+            if (next_tok.type == .minus) {
+                // -x  =>  0 - x
+                const zero = try self.allocator.create(Expr);
+                zero.* = .{ .number = 0.0 };
+                const bin = try self.allocator.create(BinaryExpr);
+                bin.* = .{ .op = .minus, .left = zero, .right = operand };
+                expr.* = .{ .binary = bin.* };
+            } else {
+                // +x => x + 0 (JS: +'5' приводит строку к числу; у нас только числа)
+                const zero = try self.allocator.create(Expr);
+                zero.* = .{ .number = 0.0 };
+                const bin = try self.allocator.create(BinaryExpr);
+                bin.* = .{ .op = .plus, .left = operand, .right = zero };
+                expr.* = .{ .binary = bin.* };
+            }
+            return expr;
+        }
+        return self.parseUnary();
+    }
+
+    fn parseUnary(self: *Parser) !*Expr {
         const token = self.consume();
         const expr = try self.allocator.create(Expr);
 
