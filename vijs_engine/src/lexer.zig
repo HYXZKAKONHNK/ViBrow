@@ -7,6 +7,8 @@ pub const TokenType = enum {
     minus,
     multiply,
     divide,
+    modulo,     // % — остаток (bank scripts: хеши, чекауты)
+    power,      // ** — возведение в степень
     left_paren,
     right_paren,
     equal,
@@ -66,11 +68,33 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
                 i += 1;
             },
             '*' => {
+                // '**' — возведение в степень (правоассоциативное)
+                if (i + 1 < source.len and source[i + 1] == '*') {
+                    try tokens.append(.{ .type = .power, .value = "**", .position = i });
+                    i += 2;
+                    continue;
+                }
                 try tokens.append(.{ .type = .multiply, .value = "*", .position = i });
                 i += 1;
             },
             '/' => {
+                // Пропускаем комментарии: // до конца строки и /* ... */
+                if (i + 1 < source.len and source[i + 1] == '/') {
+                    while (i < source.len and source[i] != '\n') i += 1;
+                    continue;
+                }
+                if (i + 1 < source.len and source[i + 1] == '*') {
+                    i += 2;
+                    while (i + 1 < source.len and !(source[i] == '*' and source[i + 1] == '/')) i += 1;
+                    if (i + 1 >= source.len) return error.LexerError;
+                    i += 2;
+                    continue;
+                }
                 try tokens.append(.{ .type = .divide, .value = "/", .position = i });
+                i += 1;
+            },
+            '%' => {
+                try tokens.append(.{ .type = .modulo, .value = "%", .position = i });
                 i += 1;
             },
             '(' => {
@@ -96,5 +120,8 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
     }
 
     try tokens.append(.{ .type = .eof, .value = "", .position = i });
+    return tokens.toOwnedSlice();
+}
+
     return tokens.toOwnedSlice();
 }
