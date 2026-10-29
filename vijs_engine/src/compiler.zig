@@ -9,6 +9,8 @@ pub const Opcode = enum(u8) {
     SUB = 2,
     MUL = 3,
     DIV = 4,
+    MOD = 5,
+    POW = 6,
 };
 
 pub const Instruction = struct {
@@ -36,6 +38,8 @@ fn compileExpr(code: *std.ArrayList(Instruction), expr: *parser.Expr) !void {
                 .minus => Opcode.SUB,
                 .multiply => Opcode.MUL,
                 .divide => Opcode.DIV,
+                .modulo => Opcode.MOD,
+                .power => Opcode.POW,
                 else => return error.CompileError,
             };
             try code.append(.{ .opcode = op, .operand = 0 });
