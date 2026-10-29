@@ -16,7 +16,7 @@ Thinter, socket, ssl, threading, urllib,
 [INSTRUCTIONS.md](INSTRUCTIONS.md)
 
 # Лицензия
-Этот проект распространяется под лицензией **GNU General Public License v3.0**.
+Этот проект распространяется под лицензией **GNU Affero General Public License v3.0**.
 Подробнее см. файл [LICENSE](LICENSE).
 
 ![логотип](resourses/ViBrow_logof.png)
