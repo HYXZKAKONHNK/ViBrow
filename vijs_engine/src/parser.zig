@@ -19,6 +19,9 @@ pub const Expr = union(enum) {
     }
 };
 
+// Явный error set — разрывает цикл вывода ошибок при рекурсии (Zig 0.17)
+pub const ParseErr = error{ ParseError, OutOfMemory };
+
 pub const BinaryExpr = struct {
     op: lexer.TokenType,
     left: *Expr,
@@ -30,13 +33,18 @@ pub const Parser = struct {
     current: usize,
     allocator: std.mem.Allocator,
 
-    pub fn parse(allocator: std.mem.Allocator, tokens: []const lexer.Token) !*Expr {
+    pub fn parse(allocator: std.mem.Allocator, tokens: []const lexer.Token) ParseErr!*Expr {
         var parser = Parser{
             .tokens = tokens,
             .current = 0,
             .allocator = allocator,
         };
-        return parser.parseExpression(0);
+        const ast = try parser.parseExpression(0);
+        // Не съеденные токены после выражения — синтаксическая ошибка
+        // (например "1 + )" или мусор после выражения). Иначе peek() в
+        // парсинге бы читал за границами среза.
+        if (parser.peek().type != .eof) return error.ParseError;
+        return ast;
     }
 
     fn peek(self: *Parser) lexer.Token {
@@ -65,7 +73,7 @@ pub const Parser = struct {
     }
 
     // Рекурсивный спуск с учетом приоритетов
-    fn parseExpression(self: *Parser, min_prec: u8) !*Expr {
+    fn parseExpression(self: *Parser, min_prec: u8) ParseErr!*Expr {
         var left = try self.parsePrimary();
 
         while (true) {
@@ -87,7 +95,7 @@ pub const Parser = struct {
         return left;
     }
 
-    fn parsePrimary(self: *Parser) !*Expr {
+    fn parsePrimary(self: *Parser) ParseErr!*Expr {
         // Унарные плюс и минус: -5, -(2+3), --x не поддерживаем, только -число/-(...)
         const next_tok = self.peek();
         if (next_tok.type == .minus or next_tok.type == .plus) {
@@ -114,7 +122,7 @@ pub const Parser = struct {
         return self.parseUnary();
     }
 
-    fn parseUnary(self: *Parser) !*Expr {
+    fn parseUnary(self: *Parser) ParseErr!*Expr {
         const token = self.consume();
         const expr = try self.allocator.create(Expr);
 
@@ -134,6 +142,7 @@ pub const Parser = struct {
     }
 };
 
-pub fn parse(allocator: std.mem.Allocator, tokens: []const lexer.Token) !*Expr {
+pub fn parse(allocator: std.mem.Allocator, tokens: []const lexer.Token) ParseErr!*Expr {
     return Parser.parse(allocator, tokens);
 }
+
