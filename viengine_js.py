@@ -3,6 +3,11 @@ import math
 import re
 from typing import Optional, Dict, Any
 
+try:  # нативный Zig-движок (vijs_engine/src) — опционально
+	from vijs_bridge import get_bridge as _get_native_bridge
+except Exception:  # pragma: no cover - деградация на Python-движок
+	_get_native_bridge = None
+
 from viengine_js_else import (
 	ArrayBuffer,
 	CanvasSurface,
@@ -426,12 +431,20 @@ class _Parser:
 		raise JavaScriptError(f"Unexpected token {value!r}")
 
 
+_NATIVE_BINARY_OPS = frozenset(("*", "/", "%"))
+
+
 class JavaScriptEngine:
 	def __init__(self, max_steps=100000):
 		self.max_steps = max_steps
 		self.steps = 0
 		self.globals = None
 		self.event_loop = EventLoop()
+		# Нативный ускоритель (vijs_engine): hot-path арифметику считает он;
+		# если .so/.dll не собрана — молча работаем на Python-движке.
+		self.native_bridge = _get_native_bridge() if _get_native_bridge else None
+		self.native_hits = 0
+		self.native_misses = 0
 
 	def execute(self, source, globals=None):
 		if not isinstance(source, str):
@@ -506,6 +519,36 @@ class JavaScriptEngine:
 				"Boolean": self._truthy,
 				"isNaN": lambda value: isinstance(value, float) and math.isnan(value),
 		}
+
+	def _literal_number(self, node):
+		"""True, если узел — числовой литерал."""
+		if isinstance(node, tuple) and len(node) == 2 and node[0] == "literal":
+			value = node[1]
+			if isinstance(value, (int, float)) and not isinstance(value, bool):
+				return True
+		return False
+
+	def _native_eval_binary(self, operator, left_node, right_node):
+		"""Вычисляет a op b нативным Zig-движком vijs_engine.
+
+		Возвращает float либо None — тогда считаем на Python. Используем
+		движок только когда оба операнда — числовые литералы и оператор
+		не '+', чтобы семантика совпадала с _binary() один в один.
+		"""
+		bridge = self.native_bridge
+		if bridge is None or not bridge.is_native:
+			return None
+		if operator not in _NATIVE_BINARY_OPS:
+			return None
+		if not (self._literal_number(left_node) and self._literal_number(right_node)):
+			return None
+		source = f"{left_node[1]} {operator} {right_node[1]}"
+		result = bridge.eval_arithmetic(source)
+		if result is None:
+			self.native_misses += 1
+		else:
+			self.native_hits += 1
+		return result
 
 	def _tick(self):
 		self.steps += 1
@@ -611,6 +654,9 @@ class JavaScriptEngine:
 				return left if self._truthy(left) else self._expression(node[3], environment)
 			if operator == "??":
 				return self._expression(node[3], environment) if left is None or left is UNDEFINED else left
+			native = self._native_eval_binary(operator, node[2], node[3])
+			if native is not None:
+				return native
 			right = self._expression(node[3], environment)
 			return self._binary(operator, left, right)
 		if kind == "conditional":
