@@ -66,9 +66,33 @@ pub fn execute(
                 }
                 sp += 1;
             },
+            .MOD => {
+                if (sp < 2) return error.StackUnderflow;
+                const b = stack[sp - 1];
+                const a = stack[sp - 2];
+                sp -= 2;
+                const divisor = js.toNumber(b);
+                if (divisor == 0) {
+                    stack[sp] = js.JS_NAN; // JS: x % 0 = NaN
+                } else {
+                    stack[sp] = js.fromNumber(@rem(js.toNumber(a), divisor));
+                }
+                sp += 1;
+            },
+            .POW => {
+                if (sp < 2) return error.StackUnderflow;
+                const b = stack[sp - 1];
+                const a = stack[sp - 2];
+                sp -= 2;
+                stack[sp] = js.fromNumber(std.math.pow(f64, js.toNumber(a), js.toNumber(b)));
+                sp += 1;
+            },
         }
     }
 
     if (sp != 1) return error.InvalidProgram;
+    return stack[0];
+}
+
     return stack[0];
 }
