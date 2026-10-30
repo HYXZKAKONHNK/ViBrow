@@ -286,6 +286,11 @@ class SimpleHTMLParser(HTMLParser):
     if tag in LAYOUT_CONTAINER_TAGS:
       self._register_container(tag, attr_dict, style)
 
+    # <video><source ...></video>: source'ы должны находиться внутри контейнера
+    if tag == "video":
+      self._dom_index += 1
+      self.container_stack.append({"id": self._dom_index, "tag": "video", "end_tag": "video"})
+
     if tag == "link" and "stylesheet" in (attr_dict.get("rel") or "").lower().split():
       if attr_dict.get("href"):
         self.stylesheet_urls.append(attr_dict["href"])
@@ -368,15 +373,69 @@ class SimpleHTMLParser(HTMLParser):
       alt_text = "[Изображение]"
       if "alt" in attr_dict:
         alt_text = f"[Картинка: {attr_dict['alt']}]"
-      self._make_element({
+      element_data = {
           "tag": "img",
           "text": alt_text,
-          "href": "",
+          "href": attr_dict.get("href", "") or (self.active_link or {}).get("href", ""),
           "src": attr_dict.get("src", ""),
           "font": font_family,
           "action_url": attr_dict.get("src", ""),
           "selector_tag": "img",
+      }
+      # width/height из атрибутов и CSS — движок уважает реальные размеры картинок
+      css_width = self._parse_css_value(style, "width")
+      css_height = self._parse_css_value(style, "height")
+      if attr_dict.get("width"):
+        element_data["css_width"] = str(attr_dict["width"]) + ("px" if attr_dict["width"].isdigit() else "")
+      if attr_dict.get("height"):
+        element_data["css_height"] = str(attr_dict["height"]) + ("px" if attr_dict["height"].isdigit() else "")
+      if css_width:
+        element_data["css_width"] = css_width
+      if css_height:
+        element_data["css_height"] = css_height
+      self._make_element(element_data, tag, attr_dict, style, font_family, bg_color)
+
+    if tag == "video":
+      sources = []
+      if attr_dict.get("src"):
+        sources.append(attr_dict["src"])
+      self._make_element({
+          "tag": "video",
+          "text": attr_dict.get("alt") or "Видео",
+          "href": "",
+          "src": attr_dict.get("src", ""),
+          "sources": sources,
+          "poster": attr_dict.get("poster", ""),
+          "autoplay": "autoplay" in attr_dict,
+          "loop": "loop" in attr_dict,
+          "muted": "muted" in attr_dict,
+          "controls": "controls" in attr_dict or True,
+          "font": font_family,
+          "action_url": attr_dict.get("src", ""),
+          "selector_tag": "video",
+          "css_width": attr_dict.get("width", "") or self._parse_css_value(style, "width"),
+          "css_height": attr_dict.get("height", "") or self._parse_css_value(style, "height"),
       }, tag, attr_dict, style, font_family, bg_color)
+
+    if tag == "source":
+      parent = None
+      for entry in reversed(self.container_stack):
+        if entry["tag"] == "video":
+          parent = entry
+          break
+      target = None
+      if parent is not None:
+        for element in reversed(self.elements):
+          if element.get("tag") == "video" and element.get("dom_order") == parent["id"]:
+            target = element
+            break
+      if target is None and self.elements and self.elements[-1].get("tag") == "video":
+        target = self.elements[-1]
+      if target is not None and attr_dict.get("src"):
+        target.setdefault("sources", []).append(attr_dict["src"])
+        if not target.get("src"):
+          target["src"] = attr_dict["src"]
+          target["action_url"] = attr_dict["src"]
 
     if tag == "a":
       href = attr_dict.get("href", "")
@@ -447,6 +506,8 @@ class SimpleHTMLParser(HTMLParser):
       self.active_link = None
     if tag == "button":
       self.active_button = None
+    if tag == "video":
+      self._close_container("video")
 
   def handle_data(self, data):
     if self.current_tag == "script" and self.current_script is not None:
@@ -972,6 +1033,151 @@ class SimpleBrowser:
       radius = 1000
     return radius
 
+  # 📏 Перевод CSS-размера (px/rem/em/pt/%/число) в пиксели канваса
+  def _css_length_pixels(self, value, base=16.0, percent_of=None, default=None):
+    match = re.match(r"\s*(-?\d+(?:\.\d+)?)\s*(px|rem|em|pt|%)?", str(value if value is not None else "").strip())
+    if not match:
+      return default
+    number = float(match.group(1))
+    unit = match.group(2) or "px"
+    if unit == "rem":
+      return max(number * 16, 1)
+    if unit == "em":
+      return max(number * base, 1)
+    if unit == "pt":
+      return max(number * 4 / 3, 1)
+    if unit == "%":
+      if percent_of is None:
+        return default
+      return max(percent_of * number / 100.0, 1)
+    return max(number, 1)
+
+  # 🔤 Полный шрифт элемента: font-family + размер + жирный/курсив из CSS
+  def _font_tuple(self, el, tag="", size_override=None):
+    family = (el.get("font") or "Arial").strip() or "Arial"
+    for generic in ("sans-serif", "serif", "monospace", "cursive", "fantasy", "system-ui", "ui-sans-serif"):
+      if family.lower() == generic:
+        family = {"monospace": "Courier New", "serif": "Times New Roman", "cursive": "Comic Sans MS"}.get(generic, "Arial")
+        break
+    style_text = el.get("style", "") or ""
+    css_size = self._parse_css_length(el.get("font_size"))
+    if css_size is None and style_text:
+      try:
+        raw = css_engine.parse_css_value(style_text, "font-size")
+      except Exception:
+        raw = ""
+      css_size = self._parse_css_length(raw)
+    if css_size is None:
+      weight_attr = (el.get("font_weight") or "").lower()
+      heading_sizes = {"h1": 24, "h2": 20, "h3": 17, "h4": 15, "h5": 13, "h6": 11}
+      if tag in heading_sizes:
+        css_size = heading_sizes[tag]
+      elif tag == "legend":
+        css_size = 12
+      elif tag in ("b", "strong", "em", "i", "label"):
+        css_size = 11
+      else:
+        css_size = 11
+    if size_override is not None:
+      css_size = size_override
+    size = int(max(min(css_size, 72), 6))
+    weight = ""
+    declared_weight = (el.get("font_weight") or "").lower()
+    if tag in ("h1", "h2", "h3", "h4", "h5", "h6", "b", "strong", "th", "legend") or declared_weight in ("bold", "bolder") or declared_weight.isdigit() and int(declared_weight or 0) >= 600:
+      weight = "bold"
+    styles = []
+    if weight:
+      styles.append(weight)
+    if tag in ("i", "em", "cite") or (el.get("font_style") or "").lower() == "italic":
+      styles.append("italic")
+    return (family, size, *styles) if styles else (family, size)
+
+  def _parse_css_length(self, value):
+    """Число-пиксель из строки CSS (или None)."""
+    if value in (None, ""):
+      return None
+    match = re.match(r"\s*(\d+(?:\.\d+)?)\s*(px|pt|%)?", str(value))
+    if not match:
+      return None
+    number = float(match.group(1))
+    unit = match.group(2) or "px"
+    if unit == "pt":
+      return number * 4 / 3
+    return number
+
+  def _measure_text_width(self, text, font):
+    try:
+      return self.canvas.textlength(text[:120], font=font)
+    except Exception:
+      size = font[1] if len(font) > 1 else 11
+      return len(text[:120]) * size * 0.62
+
+  def _wrap_text_to_width(self, text, font, max_width):
+    """Перенос длинного текста по словам под ширину канваса."""
+    words = str(text).split()
+    lines, current = [], ""
+    for word in words:
+      candidate = (current + " " + word).strip()
+      if not current or self._measure_text_width(candidate, font) <= max_width:
+        current = candidate
+      else:
+        lines.append(current)
+        current = word
+    if current:
+      lines.append(current)
+    return lines or [""]
+
+  # 🎨 Фон блока с учётом border-radius и цвета обводки (для кнопок/меню/текста)
+  def _draw_block(self, x1, y1, x2, y2, bg_color, border_color, radius=0, width_px=1, canvas=None):
+    canvas = canvas or self.canvas
+    if radius and radius > 1:
+      self._draw_rounded_button(
+          x1, y1, x2, y2, bg_color=bg_color, text_color=bg_color,
+          border_color=border_color, radius=radius, text="", canvas=canvas,
+      )
+      return
+    canvas.create_rectangle(
+        x1, y1, x2, y2, fill=bg_color, outline=border_color,
+        width=max(int(width_px), 1),
+    )
+
+  # ✏️ Рисуем текст с переносом строк; возвращает нижнюю границу y
+  def _draw_wrapped_text(self, x, y, text, font, fill, max_width, anchor="nw", justify=None):
+    line_height = (font[1] if len(font) > 1 else 11) + 5
+    lines = self._wrap_text_to_width(text[:600], font, max_width)
+    for line_no, line in enumerate(lines):
+      self.canvas.create_text(x, y + line_no * line_height, text=line, anchor=anchor, font=font, fill=fill)
+    return y + len(lines) * line_height
+
+  # 🔘 Кнопка-таб горизонтального меню: фон, скругление, обводка, цвет текста
+  def _draw_menu_tab(self, el, x1, y1, x2, y2, default_bg="#f3f5f7", default_border="#dfe5eb"):
+    tab_bg = self._normalize_color(el.get("menu_item_bg") or el.get("bg_color"), default_bg)
+    tab_border = self._normalize_color(el.get("menu_item_border") or el.get("border_color"), default_border)
+    tab_fg = self._normalize_color(el.get("menu_item_color") or el.get("fg_color"), "#202124")
+    radius = self._border_radius_pixels(el.get("menu_item_radius") or el.get("border_radius"))
+    self._draw_block(x1, y1, x2, y2, tab_bg, tab_border, radius)
+    return tab_fg
+
+  def _is_menu_context(self, el):
+    """Элемент лежит внутри <nav>/<menu>/списков или контейнера с menu-class."""
+    parent_id = el.get("parent_dom_id")
+    if parent_id is None:
+      return False
+    menu_ids = getattr(self, "page_menu_container_ids", set())
+    return parent_id in menu_ids
+
+  def _image_size_for(self, el, canvas_width, default_max_w=220, default_max_h=180):
+    """Реальные размеры картинки: width/height из HTML и CSS, max-width, %."""
+    percent_base = max(canvas_width - 60, 200)
+    max_w = self._css_length_pixels(el.get("max_width"), percent_of=percent_base)
+    req_w = self._css_length_pixels(el.get("css_width"), percent_of=percent_base)
+    req_h = self._css_length_pixels(el.get("css_height"), percent_of=percent_base)
+    limit_w = int(min(max(req_w or default_max_w, 24), max_w or 9999, percent_base))
+    limit_h = int(min(max(req_h or default_max_h, 24), max_w or 9999, 900))
+    if req_w and req_h:
+      limit_w, limit_h = int(req_w), int(req_h)
+    return limit_w, limit_h
+
   def _draw_rounded_button(self, x1, y1, x2, y2, bg_color, text_color, border_color, radius=12, text="", font=("Arial", 11, "bold"), canvas=None):
     canvas = canvas or self.canvas
     radius = min(radius, max((x2 - x1) / 2, 2), max((y2 - y1) / 2, 2))
@@ -993,7 +1199,7 @@ class SimpleBrowser:
         fill=text_color,
     )
 
-  def _load_image(self, image_url):
+  def _load_image(self, image_url, max_w=220, max_h=180):
     if not image_url or Image is None or ImageTk is None:
       return None
 
@@ -1004,8 +1210,6 @@ class SimpleBrowser:
 
       image = Image.open(BytesIO(response.content))
       image = image.convert("RGBA")
-      max_w = 220
-      max_h = 180
       image.thumbnail((max_w, max_h), Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS)
       return ImageTk.PhotoImage(image)
     except Exception:
@@ -1154,6 +1358,8 @@ class SimpleBrowser:
     self.page_forms = parser.forms
     self.page_document = getattr(parser, "dom_document", None)
     self.page_external_style_text = getattr(parser, "external_style_text", "")
+    # 🍽 Id'ы меню-контейнеров: по ним определяем «менюшность» элементов
+    self.page_menu_container_ids = set(getattr(parser, "menu_container_ids", set()))
 
     page_bg = self._normalize_color(parser.bg_color, "white")
     self.root.configure(bg=page_bg)
@@ -1761,8 +1967,41 @@ class SimpleBrowser:
     query = query.strip()
     if not query:
       return
-    self._set_address_text(query)
-    self.load_page()
+    # Если ввели полноценный URL — открываем его как страницу, а не как поисковый запрос
+    if re.match(r"^(https?://|about:|file://)", query, flags=re.IGNORECASE):
+      self._set_address_text(query)
+      self.load_page(forced_text=query)
+    elif self._looks_like_url(query):
+      url = "https://" + query
+      self._set_address_text(url)
+      self.load_page(forced_text=url)
+    else:
+      self._set_address_text(query)
+      self.load_page(forced_text=query)
+
+  @staticmethod
+  def _looks_like_url(text):
+    host = text.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if not host or re.search(r"\s", text):
+      return False
+    # localhost[:порт] — тоже адрес, а не поисковый запрос
+    if host.lower().startswith("localhost") and (host == "localhost" or ":" in host):
+      return True
+    # IPv4:port — локальные сервера
+    if re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}(?::\d+)?", host):
+      return True
+    tld = host.rsplit(".", 1)[-1].lower()
+    # TLD должен быть буквенным (или punycode) — иначе это слово из поиска, а не домен
+    if not re.fullmatch(r"[a-z]{2,}|xn--[a-z0-9]+", tld):
+      return False
+    labels = host.split(".")
+    if not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label.lower()) for label in labels):
+      return False
+    # Настоящий адрес содержит как минимум две точки: "example.com", "site.ru" и т.п.
+    # А одинокие слова типа "gmail" или "youtube" — это поисковые запросы
+    if "." not in host or host.count(".") < 1:
+      return False
+    return True
 
   def _search_api_url(self, query):
     from urllib.parse import quote_plus
@@ -1870,8 +2109,8 @@ class SimpleBrowser:
       self._submit_unbound_search(widget.get())
       return "break"
 
-  def load_page(self):
-    url = self.url_entry.get().strip()
+  def load_page(self, forced_text=None):
+    url = (forced_text if forced_text is not None else self.url_entry.get()).strip()
     
     # 🌟 ВОТ ТУТ МАГИЯ: если пусто или плейсхолдер — открываем локальный мост!
     if not url or url == self.url_placeholder:
