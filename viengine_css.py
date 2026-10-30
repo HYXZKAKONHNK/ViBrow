@@ -9,21 +9,35 @@ class CSSEngine:
 
   def process_image_and_search_styles(self, element, computed_styles):
         tag = element.get("tag", "").lower()
-        
-        if tag == "img":
-            # Авто-ограничение максимальной ширины, чтобы картинки не вылезали за экран!
-            element["max_width"] = computed_styles.get("max-width", "100%")
-            element["object_fit"] = computed_styles.get("object-fit", "cover")
-            
-            # Парсим ширину и высоту, если они заданы в CSS
+
+        # 🔤 Полные текстовые стили: семейство, размер, вес, курсив — для рендера
+        if computed_styles.get("font-family"):
+          raw_font = computed_styles["font-family"].split(",")[0].strip().replace("'", "").replace('"', "")
+          if raw_font:
+            element["font"] = raw_font
+        if computed_styles.get("font-size"):
+          element["font_size"] = computed_styles["font-size"]
+        if computed_styles.get("font-weight"):
+          element["font_weight"] = computed_styles["font-weight"]
+        if computed_styles.get("font-style"):
+          element["font_style"] = computed_styles["font-style"]
+
+        # 🖼 Размеры картинок/видео из CSS (width/height/max-width)
+        if tag in ("img", "video"):
             width_val = computed_styles.get("width", "")
             height_val = computed_styles.get("height", "")
-            
             if width_val and width_val != "auto":
                 element["css_width"] = width_val
             if height_val and height_val != "auto":
                 element["css_height"] = height_val
-                
+            if computed_styles.get("max-width"):
+                element["max_width"] = computed_styles["max-width"]
+        
+        if tag == "img":
+            # Авто-ограничение максимальной ширины, чтобы картинки не вылезали за экран!
+            element.setdefault("max_width", computed_styles.get("max-width", "100%"))
+            element["object_fit"] = computed_styles.get("object-fit", "cover")
+
             # Округление углов у картинок (border-radius)
             if computed_styles.get("border-radius"):
                 element["border_radius"] = computed_styles.get("border-radius")
@@ -346,5 +360,3 @@ class CSSEngine:
       )  # Если clamp, ставим auto
 
       return css
-
-  
