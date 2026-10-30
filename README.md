@@ -19,4 +19,9 @@ Tkinter, socket, ssl, threading, urllib,
 Этот проект распространяется под лицензией **GNU Affero General Public License v3.0**.
 Подробнее см. файл [LICENSE](LICENSE).
 
+# Упаковка файлов html в приложение
+ViForge – [упаковщик](viforge.py).
+Запуск как собранное приложение: python viforge.py --production
+Запуск как Studio (IDE): python viforge.py
+
 ![логотип](resourses/ViBrow_logof.png)
