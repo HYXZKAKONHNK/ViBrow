@@ -24,4 +24,7 @@ ViForge – [упаковщик](viforge.py).
 Запуск как собранное приложение: python viforge.py --production
 Запуск как Studio (IDE): python viforge.py
 
+# Архитектура JS движка
+JavaScript движок браузера ViBrow (viengine) является VMIT (Virtual Machine Interpretive Type) ну или виртуальная машина интерпретируемого типа
+
 ![логотип](resourses/ViBrow_logof.png)
