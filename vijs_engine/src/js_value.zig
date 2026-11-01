@@ -35,8 +35,9 @@ const Tag = enum(u4) {
     js_nan = 5,      // результат 0/0, NaN
     object = 6,      // указатель на объект (48 бит)
     string = 7,      // указатель на строку (48 бит)
-    // 8-15 зарезервированы для будущих типов:
-    // symbol, function, array, date и т.д.
+    closure = 8,     // замыкание function — (code_ptr, env_ptr)
+    // 9-15 зарезервированы для будущих типов:
+    // symbol, array, date и т.д.
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -77,11 +78,18 @@ pub fn fromObject(ptr: *anyopaque) JsValue {
     return QNAN | (@as(u64, @intFromEnum(Tag.object)) << TAG_SHIFT) | addr;
 }
 
-/// Создать JsValue из указателя на строку
+/// Создать JsValue из указателя на заголовок boxed-строки.
 pub fn fromString(ptr: *anyopaque) JsValue {
     const addr: u64 = @intFromPtr(ptr);
     std.debug.assert(addr <= PAYLOAD_MASK);
     return QNAN | (@as(u64, @intFromEnum(Tag.string)) << TAG_SHIFT) | addr;
+}
+
+/// Создать JsValue из замыкания (function-объект VM)
+pub fn fromClosure(ptr: *anyopaque) JsValue {
+    const addr: u64 = @intFromPtr(ptr);
+    std.debug.assert(addr <= PAYLOAD_MASK);
+    return QNAN | (@as(u64, @intFromEnum(Tag.closure)) << TAG_SHIFT) | addr;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -114,6 +122,7 @@ pub fn getTag(v: JsValue) Tag {
         5 => .js_nan,
         6 => .object,
         7 => .string,
+        8 => .closure,
         else => .js_nan,
     };
 }
@@ -146,6 +155,18 @@ pub fn isObject(v: JsValue) bool {
 /// Является ли значение строкой?
 pub fn isString(v: JsValue) bool {
     return getTag(v) == .string;
+}
+
+/// Является ли значение замыканием (вызываемой функцией)?
+pub fn isClosure(v: JsValue) bool {
+    return getTag(v) == .closure;
+}
+
+/// Получить указатель на замыкание
+pub fn getClosurePtr(v: JsValue) *anyopaque {
+    std.debug.assert(isClosure(v));
+    const addr = v & PAYLOAD_MASK;
+    return @as(*anyopaque, @ptrFromInt(addr));
 }
 
 /// Является ли значение null или undefined? (для == в JS)
@@ -185,6 +206,53 @@ pub fn getStringPtr(v: JsValue) *anyopaque {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Доступ к упакованным строкам.
+//   Boxed-строка: payload — указатель на заголовок { len, ptr }.
+//   Inline-строка (≤5 байт): текст лежит прямо в мантиссе
+//   NaN-boxed значения (биты 47..0 = [len:3][bytes…]), без heap;
+//   побитовое сравнение таких строк корректно (=== за O(1)).
+// ─────────────────────────────────────────────────────────────
+
+pub const StrHeader = struct {
+    len: usize,
+    ptr: [*]const u8,
+};
+
+/// Собрать inline-строку (len ≤ 5) из текста. null — если не влезают.
+pub fn inlineString(text: []const u8) ?JsValue {
+    if (text.len == 0 or text.len > 5) return null;
+    var payload: u64 = @as(u64, text.len) << 45;
+    for (text, 0..) |ch, k| {
+        payload |= @as(u64, ch) << @intCast(k * 8);
+    }
+    return QNAN | (@as(u64, @intFromEnum(Tag.string)) << TAG_SHIFT) | payload;
+}
+
+fn isInline(v: JsValue) bool {
+    return (v >> 45) & 7 != 0; // длина в битах 47-45 ненулевая → inline
+}
+
+pub fn strLen(v: JsValue) usize {
+    if (isInline(v)) return @intCast((v >> 45) & 7);
+    return rawStrBytes(v).len;
+}
+
+pub fn strBytes(v: JsValue) []const u8 {
+    if (isInline(v)) {
+        const n: usize = @intCast((v >> 45) & 7);
+        const raw: [8]u8 = @bitCast(v & 0x00_1F_FF_FF_FF_FF);
+        return raw[0..n];
+    }
+    return rawStrBytes(v);
+}
+
+fn rawStrBytes(v: JsValue) []const u8 {
+    const addr = v & PAYLOAD_MASK;
+    const h: *const StrHeader = @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(addr))));
+    return h.ptr[0..h.len];
+}
+
+// ─────────────────────────────────────────────────────────────
 // Приведение типов (как в JavaScript)
 // ─────────────────────────────────────────────────────────────
 
@@ -197,8 +265,9 @@ pub fn toBoolean(v: JsValue) bool {
             const n = getNumber(v);
             return n != 0 and !std.math.isNan(n);
         },
-        // Строки и объекты: пустая строка = false, иначе true
-        .string, .object => return true, // упрощённо
+        // Пустая строка — falsy; непустые строки, объекты, функции — truthy
+        .string => return strLen(v) != 0,
+        .object, .closure => return true,
     }
 }
 
@@ -209,8 +278,12 @@ pub fn toNumber(v: JsValue) f64 {
         .undefined, .js_nan => return std.math.nan(f64),
         .null, .boolean_false => return 0.0,
         .boolean_true => return 1.0,
-        .string => return 0.0, // TODO: парсить строку
-        .object => return std.math.nan(f64),
+        .string => {
+            const t = std.mem.trim(u8, strBytes(v), " \t\r\n");
+            if (t.len == 0) return 0.0;
+            return std.fmt.parseFloat(f64, t) catch std.math.nan(f64);
+        },
+        .object, .closure => return std.math.nan(f64),
     }
 }
 
@@ -235,7 +308,8 @@ pub fn dump(v: JsValue) void {
         .boolean_true => std.debug.print("true", .{}),
         .js_nan => std.debug.print("NaN", .{}),
         .object => std.debug.print("[object Object]@{x}", .{v & PAYLOAD_MASK}),
-        .string => std.debug.print("[string]@{x}", .{v & PAYLOAD_MASK}),
+        .string => std.debug.print("\"{s}\"", .{strBytes(v)}),
+        .closure => std.debug.print("[Function]", .{}),
     }
 }
 
