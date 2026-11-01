@@ -57,6 +57,8 @@ pub const Opcode = enum(u8) {
     STORE_LOCAL = 41, // записать вершину стека в слот (вершина остаётся)
     DECLARE_LOCAL = 42, // выделить слот в текущем фрейме со значением undefined
                         // (глубина уже известна компилятору; runtime лишь инициализирует)
+    LOAD_GLOBAL = 43,  // operand.a — индекс имени в таблице строк; читать из globals
+    STORE_GLOBAL = 44, // verшина стека → globals[name] (вершина остаётся)
 
     // ── функции и closures ──
     PUSH_FUNC = 50, // operand.func_idx — closure (code_ptr, env_ptr); env берётся из текущего фрейма
@@ -71,22 +73,34 @@ pub const Opcode = enum(u8) {
     // DEEP_GET: не нужен — ключ всегда кладём LOAD_STR перед GET_PROP
 };
 
-/// Один операнд инструкции — union, чтобы хранить числа, индексы строк
-/// и пары (depth, index) для локальных переменных.
-pub const Operand = union(PayloadKind) {
-    none: void,
-    num: f64,   // LOAD_CONST
-    i: usize,   // адрес перехода / func_idx / argc
-    depth: u16, // глубина скоуп-цепочки
-    index: u16, // номер слота во фрейме
-};
-
-pub const PayloadKind = enum { none, num, i, depth, index };
-
+/// Один байткод-инструкция: opcode + два 32-битных операнда.
+///   a — число (f64, через @bitCast) либо usize-индекс (переход,
+///       func_idx, argc, индекс строки);
+///   b — второй операнд (LOAD/STORE_LOCAL: номер слота; a.depth).
 pub const Instruction = struct {
     opcode: Opcode,
-    a: Operand = .none, // главный операнд
-    b: Operand = .none, // второй операнд (STORE/LOAD_LOCAL: index)
+    a: u64 = 0, // число (f64 bitcast) либо usize-индекс
+    b: u32 = 0, // LOAD/STORE_LOCAL: номер слота
+
+    /// LOAD_CONST: f64 из битового представления.
+    pub fn num(self: Instruction) f64 {
+        return @bitCast(self.a);
+    }
+
+    /// Индекс строки/функции, argc или адрес перехода.
+    pub fn idx(self: Instruction) usize {
+        return self.a;
+    }
+
+    /// Глубина скоуп-цепочки для LOAD/STORE_LOCAL.
+    pub fn depth(self: Instruction) u16 {
+        return @intCast(self.a);
+    }
+
+    /// Номер слота во фрейме для LOAD/STORE_LOCAL.
+    pub fn slot(self: Instruction) u16 {
+        return @intCast(self.b);
+    }
 };
 
 /// Функция (тело) — отдельный кусок байткода, вызываемый через CALL.
@@ -142,6 +156,7 @@ const VarEntry = struct {
 const Scope = struct {
     vars: std.ArrayList(VarEntry),
     is_function_scope: bool,
+    slots_count: u16 = 0, // сколько слотов занимает этот блок во фрейме
 };
 
 /// Информация о переменной после разрешения
@@ -158,7 +173,8 @@ const Compiler = struct {
     scopes: std.ArrayList(Scope),
     funcs: std.ArrayList(FunctionProto),
     function_depth: u16, // на какой глубине функций мы сейчас компилируем
-    local_counter: u16,  // следующий свободный слот текущего фрейма
+    local_counter: u16,  // следующий свободный слот текущего ФРЕЙМА
+    func_slot_base: u16 = 0, // base-счётчик функции (для local_count)
 
     fn init(alloc: std.mem.Allocator) Compiler {
         var c = Compiler{
@@ -188,8 +204,32 @@ const Compiler = struct {
         return self.code.items.len;
     }
 
+    /// Индекс scope, являющегося основанием текущего кадра (ближайший
+    /// function-scope, идя от вершины стека скоупов).
+    fn frameTopScopeIdx(self: *const Compiler) usize {
+        var i = self.scopes.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.scopes.items[i].is_function_scope) return i;
+        }
+        return 0;
+    }
+
+    /// Сколько слотов занято в текущем фрейме (для FunctionProto.local_count).
+    fn frameSlotsUsed(self: *const Compiler) u16 {
+        const top = self.frameTopScopeIdx();
+        var max_slot: u16 = 0;
+        var i = top;
+        while (i < self.scopes.items.len) : (i += 1) {
+            for (self.scopes.items[i].vars.items) |v| {
+                if (v.slot + 1 > max_slot) max_slot = v.slot + 1;
+            }
+        }
+        return max_slot;
+    }
+
     fn patchJump(self: *Compiler, addr: usize, target: usize) void {
-        self.code.items[addr].a = .{ .i = target };
+        self.code.items[addr].a = target;
     }
 
     fn pushScope(self: *Compiler, is_function_scope: bool) CompileError!void {
@@ -203,54 +243,64 @@ const Compiler = struct {
         _ = self.scopes.pop();
     }
 
-    /// Объявить переменную в подходящем scope (let/const — текущий, var — ближайший функциональный)
+    /// Объявить переменную: let/const — текущий блок-скоуп, var —
+    /// ближайший функциональный (hoist). Слоты считаются по фреймам:
+    /// local_counter — вершина текущего фрейма; при всплытии var в
+    /// родительский блок того же фрейма счётчик сдвигается, а при
+    /// popScope откатывается на slots_count родителя.
     fn declare(self: *Compiler, name: []const u8, kind: parser.DeclKind, is_const: bool) CompileError!u16 {
-        // Для var идём вверх до ближайшего function-scope
         var target_idx = self.scopes.items.len - 1;
         if (kind == .var_decl) {
             while (!self.scopes.items[target_idx].is_function_scope and target_idx > 0) {
                 target_idx -= 1;
             }
         }
-        const slot = if (target_idx == self.scopes.items.len - 1) blk: {
+        const frame_top = self.frameTopScopeIdx();
+        const slot: u16 = if (target_idx == self.scopes.items.len - 1) blk: {
             const s = self.local_counter;
             self.local_counter += 1;
+            self.scopes.items[target_idx].slots_count += 1;
             break :blk s;
+        } else if (target_idx >= frame_top) blk: {
+            // var «всплыл» в родительский блок ТЕКУЩЕГО фрейма:
+            // выделяем слот над всеми занятыми, расширяем родителя
+            var max_slot: u16 = 0;
+            var i = frame_top;
+            while (i < self.scopes.items.len) : (i += 1) {
+                for (self.scopes.items[i].vars.items) |v| {
+                    if (v.slot + 1 > max_slot) max_slot = v.slot + 1;
+                }
+            }
+            self.local_counter = max_slot + 1;
+            self.scopes.items[target_idx].slots_count += 1;
+            break :blk max_slot;
         } else blk: {
-            // var hoisted в родительский фрейм — добавляем слот туда
-            const s: u16 = @intCast(self.scopes.items[target_idx].vars.items.len);
-            break :blk s;
+            unreachable; // frame_top всегда функциональный — var найдёт его
         };
         const duped_name = try self.alloc.dupe(u8, name);
         try self.scopes.items[target_idx].vars.append(.{ .name = duped_name, .slot = slot, .is_const = is_const });
         return slot;
     }
 
-    /// Разрешить имя по цепочке скоупов. null — не найдено (глобальная lookup-таблица в рантайме).
+    /// Разрешить имя по цепочке скоупов внутри ТЕКУЩЕГО фрейма
+    /// (граница функции не пересекается). null — не найдено.
+    /// depth считается от вершины фрейм-стека VM: вызовы кладут
+    /// фреймы подряд, поэтому depth = число активных фреймов ниже.
     fn resolve(self: *Compiler, name: []const u8) ?ResolvedVar {
-        var i: usize = self.scopes.items.len;
-        var depth_in_func: u16 = 0;
-        var cur_func_boundary = self.function_depth;
+        var i = self.scopes.items.len;
         while (i > 0) {
             i -= 1;
             const sc = &self.scopes.items[i];
             for (sc.vars.items) |v| {
                 if (std.mem.eql(u8, v.name, name)) {
                     return .{
-                        .depth = depth_in_func,
+                        .depth = @as(u16, @intCast(self.scopes.items.len - 1 - i)),
                         .index = v.slot,
                         .is_const = v.is_const,
                     };
                 }
             }
-            if (sc.is_function_scope) {
-                if (depth_in_func > 0 or i == 0) break; // пересекли границу функции — стоп
-                // достигли границы функции: глубина обнуляется, дальше не идём
-                // (переменные выше функции доступны только через env-chain замыкания)
-                break;
-            }
-            depth_in_func += 1;
-            _ = cur_func_boundary;
+            if (sc.is_function_scope) break; // граница функции — выше не идём
         }
         return null;
     }
@@ -270,15 +320,15 @@ const Compiler = struct {
             .decl => |d| {
                 try self.compileExpr(d.value_opt);
                 const slot = try self.declare(d.name, d.kind, d.kind == .const_decl);
-                try self.emit(.{ .opcode = .STORE_LOCAL, .a = .{ .depth = 0 }, .b = .{ .index = slot } });
+                try self.emit(.{ .opcode = .STORE_LOCAL, .a = 0, .b = slot });
                 try self.emit(.{ .opcode = .POP });
             },
             .func_decl => |f| {
-                // function foo(){} ≡ let foo = function(){...} (имя видно внутри тела)
-                const fname = if (f.name.len > 0) f.name else "anonymous";
-                const slot = try self.declare(fname, .var_decl, false);
+                // function foo(){} ≡ let foo = function(){...}
+                // (имя объявляется ПОСЛЕ компиляции тела — внутри foo не видна)
                 try self.compileFuncLiteral(f);
-                try self.emit(.{ .opcode = .STORE_LOCAL, .a = .{ .depth = 0 }, .b = .{ .index = slot } });
+                const slot = try self.declare(f.name, .var_decl, false);
+                try self.emit(.{ .opcode = .STORE_LOCAL, .a = 0, .b = slot });
                 try self.emit(.{ .opcode = .POP });
             },
             .return_stmt => |maybe_e| {
@@ -295,9 +345,17 @@ const Compiler = struct {
             .block => |blk| {
                 try self.pushScope(false);
                 defer self.popScope();
-                // помечаем: новые локальные slots этого блока продолжат счётчик
+                // слоты let-переменных блока освобождаются при выходе:
+                // счётчик фрейма откатывается к началу блока
                 const saved_counter = self.local_counter;
-                defer self.local_counter = saved_counter;
+                defer {
+                    const freed = self.local_counter - saved_counter;
+                    self.local_counter = saved_counter;
+                    if (self.scopes.items.len > 0) {
+                        const sc = &self.scopes.items[self.scopes.items.len - 1];
+                        sc.slots_count -= @min(sc.slots_count, freed);
+                    }
+                }
                 try self.compileBlockBody(blk.stmts.items);
             },
         }
@@ -305,10 +363,10 @@ const Compiler = struct {
 
     fn compileIf(self: *Compiler, ifs: *parser.IfStmt) CompileError!void {
         try self.compileExpr(ifs.condition);
-        const jmp_false = try self.emit(.{ .opcode = .JMP_IF_FALSE, .a = .{ .i = 0 } });
+        const jmp_false = try self.emit(.{ .opcode = .JMP_IF_FALSE, .a = 0 });
         try self.compileStmt(ifs.consequent);
         if (ifs.alternate) |alt| {
-            const jmp_end = try self.emit(.{ .opcode = .JMP, .a = .{ .i = 0 } });
+            const jmp_end = try self.emit(.{ .opcode = .JMP, .a = 0 });
             const else_start = self.currentCodeLen();
             self.patchJump(jmp_false, else_start);
             try self.compileStmt(alt);
@@ -324,8 +382,7 @@ const Compiler = struct {
         // Компилируем тело функции в ОТДЕЛЬНЫЙ поток байткода.
         const outer_code = self.code;
         const outer_scopes = self.scopes;
-        const outer_strings_len_unused = self.strings.list.items.len;
-        _ = outer_strings_len_unused;
+        const outer_counter = self.local_counter;
 
         self.code = std.ArrayList(Instruction).init(self.alloc);
         var new_scopes = std.ArrayList(Scope).init(self.alloc);
@@ -334,40 +391,41 @@ const Compiler = struct {
             .is_function_scope = true,
         });
         self.scopes = new_scopes;
-        const saved_local = self.local_counter;
         self.local_counter = 0;
         self.function_depth += 1;
+        defer self.function_depth -= 1;
 
         // Параметры — первые слоты фрейма
         for (f.params.items) |p| {
             _ = try self.declare(p, .let_decl, false);
         }
 
-        try self.compileBlockBody(f.body.stmts.items);
+        // Тело: блок {} компилируем как операторы ЭТОЙ функции, без
+        // нового фрейма и без отката счётчика слотов на выходе.
+        for (f.body.stmts.items) |s| try self.compileStmt(s);
         try self.emit(.{ .opcode = .RET_UNDEF }); // неявный return undefined
 
         const proto_index = self.funcs.items.len;
         try self.funcs.append(.{
             .code = try self.code.toOwnedSlice(self.alloc),
             .arity = @intCast(f.params.items.len),
-            .local_count = self.local_counter,
+            .local_count = self.frameSlotsUsed(),
             .name = f.name,
         });
 
         self.code = outer_code;
         self.scopes = outer_scopes;
-        self.local_counter = saved_local;
-        self.function_depth -= 1;
+        self.local_counter = outer_counter;
 
-        try self.emit(.{ .opcode = .PUSH_FUNC, .a = .{ .i = proto_index } });
+        try self.emit(.{ .opcode = .PUSH_FUNC, .a = proto_index });
     }
 
     fn compileExpr(self: *Compiler, e: *parser.Expr) CompileError!void {
         switch (e.*) {
-            .number => |n| try self.emit(.{ .opcode = .LOAD_CONST, .a = .{ .num = n } }),
+            .number => |n| try self.emit(.{ .opcode = .LOAD_CONST, .a = @bitCast(n) }),
             .string => |s| {
                 const idx = try self.strings.intern(self.alloc, s);
-                try self.emit(.{ .opcode = .LOAD_STR, .a = .{ .i = idx } });
+                try self.emit(.{ .opcode = .LOAD_STR, .a = idx });
             },
             .bool_lit => |b| try self.emit(.{ .opcode = if (b) .LOAD_TRUE else .LOAD_FALSE }),
             .null_lit => try self.emit(.{ .opcode = .LOAD_NULL }),
@@ -407,7 +465,7 @@ const Compiler = struct {
                 try self.compileExpr(l.left);
                 const jmp = try self.emit(.{
                     .opcode = if (l.is_and) .TEST_AND_KEEP else .TEST_OR_KEEP,
-                    .a = .{ .i = 0 },
+                    .a = 0,
                 });
                 try self.emit(.{ .opcode = .POP });
                 try self.compileExpr(l.right);
@@ -415,10 +473,11 @@ const Compiler = struct {
             },
             .identifier => |name| {
                 if (self.resolve(name)) |rv| {
-                    try self.emit(.{ .opcode = .LOAD_LOCAL, .a = .{ .depth = rv.depth }, .b = .{ .index = rv.index } });
+                    try self.emit(.{ .opcode = .LOAD_LOCAL, .a = rv.depth, .b = rv.index });
                 } else {
-                    // Неизвестная переменная → undefined (как чтение несуществующего свойства)
-                    try self.emit(.{ .opcode = .LOAD_UNDEF });
+                    // Свободная переменная — глобальная таблица имён в рантайме
+                    const idx = try self.strings.intern(self.alloc, name);
+                    try self.emit(.{ .opcode = .LOAD_GLOBAL, .a = idx });
                 }
             },
             .assign => |a| {
@@ -427,22 +486,29 @@ const Compiler = struct {
                         try self.compileExpr(a.value);
                         if (self.resolve(name)) |rv| {
                             if (rv.is_const) return error.CompileError; // const нельзя перезаписывать
-                            try self.emit(.{ .opcode = .STORE_LOCAL, .a = .{ .depth = rv.depth }, .b = .{ .index = rv.index } });
+                            try self.emit(.{ .opcode = .STORE_LOCAL, .a = rv.depth, .b = rv.index });
                         } else {
-                            // Присваивание необъявленной переменной — игнорируем, но значение оставляем
-                            try self.emit(.{ .opcode = .DUP });
+                            const idx = try self.strings.intern(self.alloc, name);
+                            try self.emit(.{ .opcode = .STORE_GLOBAL, .a = idx });
                         }
                     },
                     .member => |m| {
-                        // [obj, key, value] → SET_PROP → [obj] ; дублируем для значения выражения
+                        // Значение кладём во временный слот фрейма (вычисляется ОДИН раз):
+                        //   value → STORE_LOCAL tmp; POP
+                        //   obj key value(tmp) → SET_PROP → obj остаётся → POP
+                        //   LOAD_LOCAL tmp — результат присваивания
+                        try self.compileExpr(a.value);
+                        const tmp = self.local_counter;
+                        self.local_counter += 1;
+                        self.scopes.items[self.scopes.items.len - 1].slots_count += 1;
+                        try self.emit(.{ .opcode = .STORE_LOCAL, .a = 0, .b = tmp });
+                        try self.emit(.{ .opcode = .POP });
                         try self.compileExpr(m.object);
                         try self.compileMemberKey(m);
-                        try self.compileExpr(a.value);
-                        try self.emit(.{ .opcode = .SET_PROP }); // оставляет obj
-                        try self.emit(.{ .opcode = .POP }); // нам нужно значение, а не obj…
-                        try self.compileExpr(a.value); // …поэтому перекладываем: проще — перевычислить
-                        // Примечание: переводы выражений с побочными эффектами редки;
-                        // для простоты правая часть вычисляется дважды.
+                        try self.emit(.{ .opcode = .LOAD_LOCAL, .a = 0, .b = tmp });
+                        try self.emit(.{ .opcode = .SET_PROP }); // оставляет obj на стеке
+                        try self.emit(.{ .opcode = .POP });
+                        try self.emit(.{ .opcode = .LOAD_LOCAL, .a = 0, .b = tmp });
                     },
                     else => return error.CompileError,
                 }
@@ -455,7 +521,7 @@ const Compiler = struct {
             .call => |c| {
                 try self.compileExpr(c.callee);
                 for (c.args.items) |arg| try self.compileExpr(arg);
-                try self.emit(.{ .opcode = .CALL, .a = .{ .i = c.args.items.len } });
+                try self.emit(.{ .opcode = .CALL, .a = c.args.items.len });
             },
             .func => |f| try self.compileFuncLiteral(f),
             .object => |o| {
@@ -464,10 +530,9 @@ const Compiler = struct {
                     // стек: [obj] → [obj, key] → [obj, key, value] → SET_PROP → [obj]
                     try self.emit(.{ .opcode = .DUP });
                     const idx = try self.strings.intern(self.alloc, entry.key);
-                    try self.emit(.{ .opcode = .LOAD_STR, .a = .{ .i = idx } });
+                    try self.emit(.{ .opcode = .LOAD_STR, .a = idx });
                     try self.compileExpr(entry.value);
-                    try self.emit(.{ .opcode = .SET_PROP });
-                    try self.emit(.{ .opcode = .POP });
+                    try self.emit(.{ .opcode = .SET_PROP }); // obj остаётся на вершине
                 }
             },
         }
@@ -479,7 +544,7 @@ const Compiler = struct {
             if (m.property_expr) |pe| try self.compileExpr(pe);
         } else {
             const idx = try self.strings.intern(self.alloc, m.property_name);
-            try self.emit(.{ .opcode = .LOAD_STR, .a = .{ .i = idx } });
+            try self.emit(.{ .opcode = .LOAD_STR, .a = idx });
         }
     }
 };
@@ -494,7 +559,7 @@ pub fn compileProgram(alloc: std.mem.Allocator, prog: *parser.Program) CompileEr
     // что вернуть (см. vm.runProgram → последнее "expression statement").
     return .{
         .main_code = try c.code.toOwnedSlice(alloc),
-        .main_locals = c.local_counter,
+        .main_locals = c.frameSlotsUsed(),
         .funcs = try c.funcs.toOwnedSlice(alloc),
         .strings = try c.strings.list.toOwnedSlice(),
     };
