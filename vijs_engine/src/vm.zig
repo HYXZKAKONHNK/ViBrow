@@ -93,6 +93,3 @@ pub fn execute(
     if (sp != 1) return error.InvalidProgram;
     return stack[0];
 }
-
-    return stack[0];
-}
