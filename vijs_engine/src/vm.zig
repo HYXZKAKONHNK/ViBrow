@@ -28,6 +28,7 @@ pub const VmError = error{
     CallDepthExceeded,
     InvalidProgram,
     NotCallable,
+    OutOfMemory,
 };
 
 const STACK_SIZE: usize = 4096; // value stack (в значениях)
@@ -37,8 +38,8 @@ const MAX_CALL_STACK: usize = 128; // глубина рекурсии CALL→RET
 const MAX_VALUE_BYTES: usize = 32 * 1024; // строки+объекты на программу
 
 /// Интернированная строка: один экземпляр на текст (hash → pointer).
-/// Поле bytes хранится как заголовок js.StrHeader — JsValue строки
-/// указывает прямо на это поле (len+ptr), без额外 аллокаций.
+/// Поле header хранится как js.StrHeader — JsValue строки указывает
+/// прямо на &header (len+ptr), без лишних аллокаций.
 pub const Str = struct {
     header: js.StrHeader,
 
@@ -50,22 +51,28 @@ pub const Str = struct {
 /// Хеш-мапа свойств JS-объекта.
 pub const ObjMap = std.StringHashMap(js.JsValue);
 
-/// Closure = (code_ptr, env_ptr) — ровно как просили.
+/// Closure = (code_ptr, env_ptr).
 pub const Closure = struct {
     code: []const compiler.Instruction, // указатель на байткод прототипа
-    env: ?*Frame, // фрейм места создания (лексическое окружение)
-    env_base: ?*Frame, // base-фрейм внешней функции (продолжает цепочку выше env)
+    env: ?*Frame,                       // фрейм места создания
+    env_base: ?*Frame,                  // base-фрейм внешней функции (продолжает цепочку выше env)
     arity: u16,
-    local_count: u16, // размер фрейма при вызове
+    local_count: u16,
     name: []const u8,
 };
 
 /// Фрейм = scope: массив slots + link к closure-окружению.
+///   backing — полная аллокация, неизменяемая длина. Только её освобождаем.
+///   slots   — логическое окно в backing (len ≤ backing.len), его
+///             можно уменьшать при переиспользовании фрейма из пула.
+/// Без этого разделения free(slots) после f.slots = f.slots[0..n]
+/// освобождает меньший размер, чем alloc — UB в GPA.
 pub const Frame = struct {
+    backing: []js.JsValue,
     slots: []js.JsValue,
-    env: ?*Frame, // цепочка скоупов: фрейм, непосредственно окружающий этот
+    env: ?*Frame,    // цепочка скоупов: фрейм, непосредственно окружающий этот
     parent: ?*Frame, // предыдущий фрейм фрейм-стека VM
-    live: bool, // false — фрейм снят со стека и доступен только из closures
+    live: bool,      // true = на стеке ИЛИ захвачен замыканием (нельзя в пул)
 };
 
 /// Возвратный адрес вызова (CALL → RET).
@@ -146,8 +153,10 @@ pub const VM = struct {
     }
 
     fn freeFrame(self: *VM, f: *Frame) void {
-        self.total_slots -= f.slots.len;
-        self.alloc.free(f.slots);
+        // total_slots не трогаем — при уходе фрейма со стека это уже
+        // сделал returnFromCall / runMain. При deinit значение
+        // total_slots больше не имеет смысла.
+        self.alloc.free(f.backing);
         self.alloc.destroy(f);
     }
 
@@ -182,28 +191,37 @@ pub const VM = struct {
         return self.frames[self.fp - 1].?;
     }
 
-    /// Создать фрейм из live-пула (переиспользование после RET).
+    /// Взять фрейм из live-пула или создать новый.
+    /// backing сохраняется на всю жизнь фрейма; slots — окно нужного размера.
     fn makeFrame(self: *VM, n: usize, env: ?*Frame) VmError!*Frame {
         if (n == 0) return error.InvalidProgram;
         if (self.total_slots + n > MAX_SLOTS) return error.FrameOverflow;
-        // ищем свободный фрейм достаточного размера
+
         for (self.frames_owned.items) |f| {
-            if (!f.live and f.slots.len >= n) {
-                @memset(f.slots[0..n], js.UNDEFINED);
-                f.slots = f.slots[0..n];
+            if (!f.live and f.backing.len >= n) {
+                @memset(f.backing[0..n], js.UNDEFINED);
+                f.slots = f.backing[0..n];
                 f.env = env;
+                f.parent = null;
                 f.live = true;
                 self.total_slots += n;
                 return f;
             }
         }
         if (self.frames_owned.items.len >= MAX_FRAMES) return error.FrameOverflow;
+
         const f = try self.alloc.create(Frame);
         errdefer self.alloc.destroy(f);
         const backing = try self.alloc.alloc(js.JsValue, n);
         errdefer self.alloc.free(backing);
         @memset(backing, js.UNDEFINED);
-        f.* = .{ .slots = backing, .env = env, .parent = null, .live = true };
+        f.* = .{
+            .backing = backing,
+            .slots = backing,
+            .env = env,
+            .parent = null,
+            .live = true,
+        };
         self.total_slots += n;
         try self.frames_owned.append(f);
         return f;
@@ -218,13 +236,15 @@ pub const VM = struct {
         self.fp += 1;
     }
 
+    /// Снять фрейм со стека. Поле live НЕ трогаем — решение о судьбе фрейма
+    /// (в пул или оставить живым) принимает вызывающий (returnFromCall / runMain):
+    /// только он знает, ссылается ли кто-то из closures на этот фрейм.
     fn popFrame(self: *VM) VmError!*Frame {
         if (self.fp == 0) return error.InvalidProgram;
         self.fp -= 1;
         const f = self.frames[self.fp].?;
         self.frames[self.fp] = null;
         f.parent = null;
-        f.live = false; // снят со стека: доступен только через closures
         return f;
     }
 
@@ -270,7 +290,9 @@ pub const VM = struct {
     fn strValueByIdx(self: *VM, idx: usize) VmError!js.JsValue {
         if (idx >= self.image.strings.len) return error.InvalidProgram;
         const s = try self.intern(self.image.strings[idx]);
-        return js.fromString(s);
+        // &s.header, а не s: Str не extern, поле header не обязано быть
+        // на offset 0 — JsValue должен указывать именно на заголовок.
+        return js.fromString(&s.header);
     }
 
     fn strBytes(v: js.JsValue) []const u8 {
@@ -285,7 +307,7 @@ pub const VM = struct {
         @memcpy(buf[0..a.len], a);
         @memcpy(buf[a.len..], b);
         const s = try self.intern(buf);
-        return js.fromString(s);
+        return js.fromString(&s.header);
     }
 
     // ───────── objects (hash map) ─────────
@@ -310,19 +332,14 @@ pub const VM = struct {
         const proto = &self.image.funcs[proto_idx];
         const c = try self.alloc.create(Closure);
         errdefer self.alloc.destroy(c);
-        // env — фрейм места создания; outer — base-фрейм внешней функции
-        // (нужен, когда внутри возвращённого замыкания резолвятся free
-        // variables глубже env: outer даёт продолжение цепочки вверх).
+        // env — фрейм места создания; env_base — base-фрейм внешней
+        // функции (нужен, когда внутри возвращённого замыкания резолвятся
+        // free variables глубже env). Сохраняем cur.env, чтобы цепочка
+        // не рвалась после того, как cur будет снят со стека.
         const cur = self.curFrame() catch null;
         c.* = .{
             .code = proto.code, // code_ptr
-            .env = cur, // env_ptr — фрейм места создания
-            // Если замыкание создано внутри ВЫЗОВА функции (cur — её
-            // фрейм), то cur был помещён в стек с env = лексическое
-            // окружение самой функции. Цепочка от new-func фрейма:
-            //   nf.env = cur(outer frame)... уже корректна через pushFrame.
-            // env_base нужен для случаев, когда cur снят со стека позже:
-            // сохраняем его link на окружение, чтобы цепочка не рвалась.
+            .env = cur,         // env_ptr
             .env_base = if (cur) |fr| fr.env else null,
             .arity = proto.arity,
             .local_count = proto.local_count,
@@ -402,7 +419,10 @@ pub const VM = struct {
 
     // ───────── основной цикл ─────────
 
-    /// Ссылается ли какое-нибудь closure на фрейм (env или outer)?
+    /// Ссылается ли какое-нибудь closure на фрейм (env или env_base)?
+    /// Консервативно: closures, ставшие «мусором», всё равно видны в
+    /// self.closures. Для текущего масштаба приемлемо; при желании
+    /// меняется на refcount в Frame (см. заметки в конце).
     fn isReferenced(self: *VM, f: *Frame) bool {
         for (self.closures.items) |c| {
             if (c.env == f or c.env_base == f) return true;
@@ -417,7 +437,14 @@ pub const VM = struct {
         try self.pushFrame(gframe);
         var last: js.JsValue = js.UNDEFINED;
         try self.runCode(self.image.main_code, &last);
-        if (self.fp != 0) return error.InvalidProgram;
+        if (self.fp != 1) return error.InvalidProgram;
+        // Снимаем главный фрейм. Если на него ссылается closure из `last` —
+        // фрейм остаётся живым (deinit всё уберёт). Иначе — в пул.
+        const done = try self.popFrame();
+        if (!self.isReferenced(done)) {
+            done.live = false;
+            self.total_slots -= done.slots.len;
+        }
         return last;
     }
 
@@ -442,7 +469,7 @@ pub const VM = struct {
                 .LOAD_FALSE => try self.push(js.FALSE),
                 .LOAD_NULL => try self.push(js.NULL),
                 .LOAD_UNDEF => try self.push(js.UNDEFINED),
-                .POP => last.* = try self.pop(), // statement-выражение: его результат — «последнее значение»
+                .POP => last.* = try self.pop(), // результат statement-выражения — «последнее значение»
                 .DUP => try self.push(try self.peek()),
 
                 .ADD => {
@@ -646,7 +673,7 @@ pub const VM = struct {
         }
     }
 
-    /// Общий выход из функции: снять фрейм (если на него нет ссылок — в пул),
+    /// Общий выход из функции: снять фрейм, решить его судьбу,
     /// положить возвращаемое значение, восстановить код/ip вызывающего.
     fn returnFromCall(self: *VM, rv: js.JsValue, code: *[]const compiler.Instruction, ip: *usize) VmError!void {
         const ra = self.calls[self.cp - 1];
@@ -654,9 +681,11 @@ pub const VM = struct {
         const done = try self.popFrame();
         // Фрейм, на который ссылается хотя бы одно closure (env/env_base),
         // НЕ возвращается в пул — иначе замыкание повиснет на чужих данных.
+        // Если не ссылается — помечаем not-live, он будет переиспользован
+        // в makeFrame без новой аллокации.
         if (!self.isReferenced(done)) {
+            done.live = false;
             self.total_slots -= done.slots.len;
-            // фрейм остаётся в frames_owned для переиспользования (live pool)
         }
         try self.push(rv);
         code.* = ra.code;
