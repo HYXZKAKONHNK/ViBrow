@@ -5,39 +5,37 @@ const compiler = @import("compiler.zig");
 const vm = @import("vm.zig");
 const js = @import("js_value.zig");
 
-// ═══════════════════════════════════════════════════════════════
-// НАСТРОЙКИ ДВИЖКА ViBrow
-// ═══════════════════════════════════════════════════════════════
-
-/// Максимум памяти на одну вкладку (как ты хотел — 20 МБ минимум)
 const MAX_MEMORY_PER_TAB = 20 * 1024 * 1024;
 
-/// Типы ошибок, которые может вернуть движок
-const EngineError = error{
-    LexError,       // Лексер не смог разобрать код
-    ParseError,     // Парсер не смог построить дерево
-    CompileError,   // Компилятор не смог сделать байткод
-    RuntimeError,   // VM не смогла выполнить
-    OutOfMemory,    // Закончилась память (сработала защита)
+// ─────────────────────────────────────────────────────────────
+// Кэш результатов. Храним ТОЛЬКО скалярные данные — никаких
+// указателей в heap VM, потому что VM умирает до возврата из
+// executeInternal. Тем самым кэш безопасен для чтения везде.
+// ─────────────────────────────────────────────────────────────
+
+const CachedResult = struct {
+    as_number: f64,
+    is_number: bool,
+    tag: u8,
 };
 
-// ═══════════════════════════════════════════════════════════════
-// ВНУТРЕННЯЯ ФУНКЦИЯ — выполняет полный pipeline
-// ═══════════════════════════════════════════════════════════════
+fn failResult() CachedResult {
+    return .{
+        .as_number = std.math.nan(f64),
+        .is_number = false,
+        .tag = @intFromEnum(js.getTag(js.JS_NAN)),
+    };
+}
 
-/// Выполняет JS-код и возвращает упакованный JsValue (u64).
-/// Возвращает JS_NAN при любой ошибке.
-/// Кэш результатов: банковские бандлы повторяют одни и те же выражения —
-/// второй прогон не должен платить за лексер/парсер/комплятор.
 const CacheEntry = struct {
     key: []u8,
-    value: js.JsValue,
+    value: CachedResult,
 };
 
 var result_cache: ?std.ArrayList(CacheEntry) = null;
 const MAX_CACHE_ENTRIES = 2048;
 
-fn cacheGet(key: []const u8) ?js.JsValue {
+fn cacheGet(key: []const u8) ?CachedResult {
     const cache = result_cache orelse return null;
     for (cache.items) |entry| {
         if (std.mem.eql(u8, entry.key, key)) return entry.value;
@@ -45,8 +43,7 @@ fn cacheGet(key: []const u8) ?js.JsValue {
     return null;
 }
 
-fn cachePut(key: []const u8, value: js.JsValue) void {
-    // page_allocator не освобождает — ограничиваем число записей
+fn cachePut(key: []const u8, value: CachedResult) void {
     if (result_cache == null) {
         result_cache = std.ArrayList(CacheEntry).init(std.heap.page_allocator);
     }
@@ -55,88 +52,93 @@ fn cachePut(key: []const u8, value: js.JsValue) void {
     const duped = std.heap.page_allocator.dupe(u8, key) catch return;
     cache.append(.{ .key = duped, .value = value }) catch {
         std.heap.page_allocator.free(duped);
-        return;
     };
 }
 
-/// Выполняет JS-код и возвращает упакованный JsValue (u64).
-/// Возвращает JS_NAN при любой ошибке.
-fn executeInternal(js_code: []const u8) js.JsValue {
-    // Шаг 0: кэш по исходнику
-    if (cacheGet(js_code)) |cached| return cached;
+// ─────────────────────────────────────────────────────────────
+// Полный pipeline: lexer → parser → compiler → VM.
+// Арена поверх GPA: все промежуточные AST/байткоды/строки
+// освобождаются одним deinit, а GPA ограничивает суммарную память.
+// ─────────────────────────────────────────────────────────────
 
-    // Создаём аллокатор с защитой от переполнения памяти.
+fn executeInternal(js_code: []const u8) CachedResult {
+    if (cacheGet(js_code)) |hit| return hit;
+
     var gpa = std.heap.GeneralPurposeAllocator(.{
         .enable_memory_limit = true,
         .memory_limit = MAX_MEMORY_PER_TAB,
     }){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
 
-    // Шаг 1: Лексер — разбиваем код на токены
-    const tokens = lexer.tokenize(allocator, js_code) catch return js.JS_NAN;
-    defer allocator.free(tokens);
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    // Шаг 2: Парсер — строим AST (дерево)
-    const ast = parser.parse(allocator, tokens) catch return js.JS_NAN;
-    defer ast.destroy(allocator);
+    const fail = failResult();
 
-    // Шаг 3: Компилятор — превращаем AST в байткод
-    const bytecode = compiler.compile(allocator, ast) catch return js.JS_NAN;
-    defer allocator.free(bytecode);
+    const tokens = lexer.tokenize(allocator, js_code) catch {
+        cachePut(js_code, fail);
+        return fail;
+    };
 
-    // Шаг 4: VM — выполняем байткод и получаем JsValue
-    const result = vm.execute(allocator, bytecode) catch return js.JS_NAN;
+    const ast = parser.parseProgram(allocator, tokens) catch {
+        cachePut(js_code, fail);
+        return fail;
+    };
 
-    cachePut(js_code, result);
-    return result;
+    const image = compiler.compileProgram(allocator, ast) catch {
+        cachePut(js_code, fail);
+        return fail;
+    };
+
+    var machine = vm.VM.init(allocator, &image) catch {
+        cachePut(js_code, fail);
+        return fail;
+    };
+    defer machine.deinit();
+
+    const value = machine.runMain() catch {
+        cachePut(js_code, fail);
+        return fail;
+    };
+
+    // Распаковываем JsValue В СКАЛЯРЫ до того, как arena.deinit()
+    // освободит heap VM. Так кэш и возврат безопасны.
+    const out: CachedResult = .{
+        .as_number = js.toNumber(value),
+        .is_number = js.isNumber(value),
+        .tag = @intFromEnum(js.getTag(value)),
+    };
+    cachePut(js_code, out);
+    return out;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ФУНКЦИИ ДЛЯ PYTHON (через ctypes)
-// ═══════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
+// C-API для ctypes (Python)
+// ─────────────────────────────────────────────────────────────
 
-/// Главная функция. Python передаёт C-строку, мы возвращаем число.
-/// callconv(.C) — обязательно для совместимости с Python/ctypes.
 export fn vijs_execute(js_code_ptr: [*:0]const u8) callconv(.C) f64 {
-    // Преобразуем C-строку (null-terminated) в Zig-срез
-    const js_code = std.mem.span(js_code_ptr);
-    
-    // Выполняем весь pipeline
-    const result = executeInternal(js_code);
-    
-    // Преобразуем JsValue в обычное число f64.
-    // Если результат не число (например, undefined) — вернётся NaN.
-    return js.toNumber(result);
+    return executeInternal(std.mem.span(js_code_ptr)).as_number;
 }
 
-/// Проверяет, является ли результат числом.
-/// Полезно для Python, чтобы понять, успешно ли выполнился код.
 export fn vijs_is_number(js_code_ptr: [*:0]const u8) callconv(.C) bool {
-    const js_code = std.mem.span(js_code_ptr);
-    const result = executeInternal(js_code);
-    return js.isNumber(result);
+    return executeInternal(std.mem.span(js_code_ptr)).is_number;
 }
 
-/// Возвращает тег типа результата (для отладки).
-/// 0 = number, 1 = undefined, 2 = null, 3 = false, 4 = true, 5 = NaN, 6 = object, 7 = string
 export fn vijs_get_type(js_code_ptr: [*:0]const u8) callconv(.C) u8 {
-    const js_code = std.mem.span(js_code_ptr);
-    const result = executeInternal(js_code);
-    return @intFromEnum(js.getTag(result));
+    return executeInternal(std.mem.span(js_code_ptr)).tag;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ТЕСТ БЕЗ PYTHON (запуск: zig run src/engine.zig)
-// ═══════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
+// Self-tests (zig run src/engine.zig)
+// ─────────────────────────────────────────────────────────────
 
 pub fn main() !void {
     std.debug.print("╔═══════════════════════════════════════╗\n", .{});
     std.debug.print("║  ViBrow JS Engine — NaN Boxing Test   ║\n", .{});
     std.debug.print("╚═══════════════════════════════════════╝\n\n", .{});
 
-    // Тестовые примеры
-    const test_cases = [_]struct {
+    const cases = [_]struct {
         code: [:0]const u8,
         expected: f64,
     }{
@@ -144,40 +146,32 @@ pub fn main() !void {
         .{ .code = "10 * 2 - 5", .expected = 15.0 },
         .{ .code = "(3 + 7) * 2", .expected = 20.0 },
         .{ .code = "100 / 5 + 10", .expected = 30.0 },
-        .{ .code = "2 + 3 * 4", .expected = 14.0 }, // Приоритет операторов
+        .{ .code = "2 + 3 * 4", .expected = 14.0 },
         .{ .code = "(2 + 3) * 4", .expected = 20.0 },
-        .{ .code = "-5 + 3", .expected = -2.0 },          // унарный минус
-        .{ .code = "7 % 3", .expected = 1.0 },            // остаток
-        .{ .code = "2 ** 10", .expected = 1024.0 },       // степень
-        .{ .code = "2 ** 3 ** 2", .expected = 512.0 },    // правоассоциативность
+        .{ .code = "-5 + 3", .expected = -2.0 },
+        .{ .code = "7 % 3", .expected = 1.0 },
+        .{ .code = "2 ** 10", .expected = 1024.0 },
+        .{ .code = "2 ** 3 ** 2", .expected = 512.0 },
         .{ .code = "// comment\n6 * 7", .expected = 42.0 },
         .{ .code = "/* block */ 1 + 1", .expected = 2.0 },
     };
 
     var passed: usize = 0;
-    
-    for (test_cases) |test| {
-        const result = vijs_execute(test.code);
-        const is_correct = result == test.expected;
-        if (is_correct) passed += 1;
-        
-        const status = if (is_correct) "✓" else "✗";
-        std.debug.print("{s} {s} = {d}", .{ status, test.code, result });
-        
-        if (!is_correct) {
-            std.debug.print(" (ожидалось: {d})", .{test.expected});
-        }
+    for (cases) |tc| {
+        const got = vijs_execute(tc.code.ptr);
+        const ok = got == tc.expected;
+        if (ok) passed += 1;
+        const mark: []const u8 = if (ok) "✓" else "✗";
+        std.debug.print("{s} {s} = {d}", .{ mark, tc.code, got });
+        if (!ok) std.debug.print(" (ожидалось {d})", .{tc.expected});
         std.debug.print("\n", .{});
     }
 
-    std.debug.print("\n=== Результаты: {}/{} тестов прошло ===\n", .{ passed, test_cases.len });
+    std.debug.print("\n=== Результаты: {}/{} тестов прошло ===\n", .{ passed, cases.len });
 
-    // Тест проверки типа
     std.debug.print("\n=== Тест типов ===\n", .{});
     std.debug.print("5 + 3 — это число? {s}\n", .{
-        if (vijs_is_number("5 + 3")) "да" else "нет"
+        if (vijs_is_number("5 + 3")) "да" else "нет",
     });
-    std.debug.print("Тип результата (0=число): {}\n", .{
-        vijs_get_type("5 + 3")
-    });
+    std.debug.print("Тип результата (0=число): {}\n", .{vijs_get_type("5 + 3")});
 }
