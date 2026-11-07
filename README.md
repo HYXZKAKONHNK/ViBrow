@@ -29,7 +29,7 @@ ViForge – [упаковщик](viforge.py).
 # Архитектура JS движка
 JavaScript движок браузера ViBrow (viengine) является VMIT (Virtual Machine Interpretive Type) ну или виртуальная машина интерпретируемого типа
 
-# In english
+## In english
 # ViBrow
 
 A lightweight, custom web browser written in pure Python and Zig, engineered specifically for low-resource microcomputers (Raspberry Pi, Orange Pi, older hardware). 
