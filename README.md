@@ -29,4 +29,32 @@ ViForge – [упаковщик](viforge.py).
 # Архитектура JS движка
 JavaScript движок браузера ViBrow (viengine) является VMIT (Virtual Machine Interpretive Type) ну или виртуальная машина интерпретируемого типа
 
+# In english
+# ViBrow
+
+A lightweight, custom web browser written in pure Python and Zig, engineered specifically for low-resource microcomputers (Raspberry Pi, Orange Pi, older hardware). 
+
+ViBrow runs entirely on standard libraries (Tkinter, socket, ssl, threading) without a single third-party dependency, consuming only **30-65 MB of RAM**.
+
+## Core Features
+* **Custom Layout Engines:** Built from scratch DOM parsing and CSS rendering.
+* **VMIT JS Engine:** A custom interpreted JavaScript Virtual Machine (`vijs_engine`) featuring **NaN Boxing** for optimal speed and memory layout. Parts of the JS engine are written in **Zig** for bare-metal performance.
+* **Ultra-Low Hardware Requirements:** Runs smoothly on a single-core 700MHz CPU and 200MB LPDDR1 RAM.
+* **Built-in OOM Protection:** Active background guard processes that automatically spin up a emergency swap space if RAM usage crosses 90% (tailored per OS: Linux, Windows, macOS).
+* **Privacy & Utility:** Multi-tab interface, local caching, cookie management, and an integrated proxy bridge.
+* **ViForge Ecosystem:** Includes a built-in bundler (`viforge.py`) to package HTML files into standalone apps or run as a local IDE Studio.
+
+## OS Support
+* **Linux:** (Ubuntu, Debian, Arch with light DEs like XFCE/MATE) – maximum efficiency, highly responsive Tkinter rendering.
+* **Microcomputers:** Raspberry Pi, Orange Pi, Banana Pi, Radxa Zero, etc.
+* **Windows & macOS:** Full support for Windows 10/11 and Apple Silicon (M1-M4) with hardware acceleration enabled.
+
+## Architecture Short Note
+Unlike bloated Chromium-based setups, ViBrow relies on explicit single-threaded parsing efficiency and zero heavy dependencies. The JS engine transitions key execution paths to Zig to overcome Python's interpretation overhead while maintaining a tiny footprint.
+
+## License
+Distributed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+вот вам английский американские бургеры из реддита
+
 ![логотип](resourses/ViBrow_logof.png)
