@@ -14,25 +14,18 @@ Tkinter, socket, ssl, threading, urllib,
 
 ### Инструкция по установке и запуске ViBrow 
 [INSTRUCTIONS.md](INSTRUCTIONS.md)
-
 ### Лицензия
 Этот проект распространяется под лицензией **GNU Affero General Public License v3.0**.
 Подробнее см. файл [LICENSE](LICENSE).
-
 ### Упаковка файлов html в приложение
 ViForge – [упаковщик](viforge.py).
-
 Запуск как собранное приложение: python viforge.py --production. 
-
 Запуск как Studio (IDE): python viforge.py. 
-
 ### Архитектура JS движка
 JavaScript движок браузера ViBrow (viengine) является VMIT (Virtual Machine Interpretive Type) ну или виртуальная машина интерпретируемого типа
 
 # ViBrow
-
 A lightweight, custom web browser written in pure Python and Zig, engineered specifically for low-resource microcomputers (Raspberry Pi, Orange Pi, older hardware). 
-
 ViBrow runs entirely on standard libraries (Tkinter, socket, ssl, threading) without a single third-party dependency, consuming only **30-65 MB of RAM**.
 
 ## Core Features
