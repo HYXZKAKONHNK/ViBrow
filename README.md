@@ -56,5 +56,6 @@ Unlike bloated Chromium-based setups, ViBrow relies on explicit single-threaded 
 Distributed under the GNU Affero General Public License v3.0 (AGPL-3.0).
 
 вот вам энглиш лангуаге, американ тролли бургеры из реддита
+here is u anglish langu age american trolli burgers from reddit (vot vam english language, american trolli burgeri iz reddita)
 
 ![логотип](resourses/ViBrow_logof.png)
