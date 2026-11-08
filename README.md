@@ -12,24 +12,23 @@ Tkinter, socket, ssl, threading, urllib,
 В ViBrow также присутствуют защитники от OOM (ошибки Out Of Memory), они работают в фоновых процессах и если 90% оперативной памяти занято, создают аварийный файл подкачки на 512МБ. Сначала включается фоновый процесс, который определяет операционную систему, когда он понял какая это ОС он открывает соответствующий код для этой ОС. Это очень важно для микрокомпьютеров
 Также в движке был реализован NaN Boxing, переход на Zig обусловлен тем, что я стремлюсь к скорости и компактности, что Zig и может дать. Переход на Zig был только в движке JavaScript (JS)
 
-# Инструкция по установке и запуске ViBrow 
+### Инструкция по установке и запуске ViBrow 
 [INSTRUCTIONS.md](INSTRUCTIONS.md)
 
-# Лицензия
+### Лицензия
 Этот проект распространяется под лицензией **GNU Affero General Public License v3.0**.
 Подробнее см. файл [LICENSE](LICENSE).
 
-# Упаковка файлов html в приложение
+### Упаковка файлов html в приложение
 ViForge – [упаковщик](viforge.py).
 
 Запуск как собранное приложение: python viforge.py --production. 
 
 Запуск как Studio (IDE): python viforge.py. 
 
-# Архитектура JS движка
+### Архитектура JS движка
 JavaScript движок браузера ViBrow (viengine) является VMIT (Virtual Machine Interpretive Type) ну или виртуальная машина интерпретируемого типа
 
-## In english
 # ViBrow
 
 A lightweight, custom web browser written in pure Python and Zig, engineered specifically for low-resource microcomputers (Raspberry Pi, Orange Pi, older hardware). 
