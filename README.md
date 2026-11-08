@@ -55,6 +55,6 @@ Unlike bloated Chromium-based setups, ViBrow relies on explicit single-threaded 
 ## License
 Distributed under the GNU Affero General Public License v3.0 (AGPL-3.0).
 
-вот вам английский американские бургеры из реддита
+вот вам энглиш лангуаге, американ тролли бургеры из реддита
 
 ![логотип](resourses/ViBrow_logof.png)
