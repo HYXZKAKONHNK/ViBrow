@@ -13,18 +13,12 @@ Tkinter, socket, ssl, threading, urllib,
 Также в движке был реализован NaN Boxing, переход на Zig обусловлен тем, что я стремлюсь к скорости и компактности, что Zig и может дать. Переход на Zig был только в движке JavaScript (JS)
 
 # Инструкции, лицензии и прочее
-Инструкции по запуску и установке – [INSTRUCTIONS.md](INSTRUCTIONS.md). 
-
-Этот проект распространяется под лицензией **GNU Affero General Public License v3.0**.
-
-Подробнее см. файл [LICENSE](LICENSE).
-
-ViForge – [упаковщик](viforge.py).
-
-Запуск как собранное приложение: python viforge.py --production. 
-
-Запуск как Studio (IDE): python viforge.py. 
-
+Инструкции по запуску и установке – [INSTRUCTIONS.md](INSTRUCTIONS.md).  
+Этот проект распространяется под лицензией **GNU Affero General Public License v3.0**.  
+Подробнее см. файл [LICENSE](LICENSE).  
+ViForge – [упаковщик](viforge.py).  
+Запуск как собранное приложение: python viforge.py --production.  
+Запуск как Studio (IDE): python viforge.py.  
 JavaScript движок браузера ViBrow (viengine) является VMIT (Virtual Machine Interpretive Type) ну или виртуальная машина интерпретируемого типа. 
 
 # ViBrow
