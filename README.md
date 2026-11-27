@@ -48,4 +48,7 @@ Distributed under the GNU Affero General Public License v3.0 (AGPL-3.0).
 вот вам энглиш лангуаге, американ тролли бургеры из реддита
 here is u anglish langu age american trolli burgers from reddit (vot vam english language, american trolli burgeri iz reddita)
 
+# Я не тупой дебил
+I’m not a stupid moron (maybe)
+
 ![логотип](resourses/ViBrow_logof.png)
